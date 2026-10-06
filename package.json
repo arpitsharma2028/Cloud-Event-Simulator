@@ -1,0 +1,22 @@
+{
+  "name": "cloud-event-simulator",
+  "version": "1.0.0",
+  "description": "Interactive Cloud Event Simulator modeling scheduling, load balancing, resource pooling, elasticity, failures, metering, and SLA metrics",
+  "scripts": {
+    "start": "node backend/src/index.js",
+    "test": "node backend/tests/api.test.js",
+    "build:engine": "g++ -std=c++14 -O3 simulation-engine/src/main.cpp -o simulation-engine/bin/cloud_sim_engine.exe",
+    "test:engine": "g++ -std=c++14 -O3 tests/test_engine.cpp -o tests/test_engine.exe && tests/test_engine.exe",
+    "build:frontend": "cd frontend && npm run build"
+  },
+  "keywords": [
+    "cloud-computing",
+    "discrete-event-simulation",
+    "scheduling-algorithms",
+    "load-balancing",
+    "elasticity",
+    "fault-tolerance"
+  ],
+  "author": "Antigravity Engineering",
+  "license": "MIT"
+}

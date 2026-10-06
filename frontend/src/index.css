@@ -1,0 +1,232 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-primary: #090d16;
+  --bg-surface: #0f172a;
+  --bg-card: #141e33;
+  --bg-card-hover: #1b2742;
+  --border-subtle: #24324f;
+  --border-strong: #33466d;
+  
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+
+  --accent-blue: #2563eb;
+  --accent-blue-hover: #1d4ed8;
+  --accent-blue-subtle: rgba(37, 99, 235, 0.12);
+
+  --status-healthy: #10b981;
+  --status-healthy-subtle: rgba(16, 185, 129, 0.12);
+  --status-busy: #f59e0b;
+  --status-busy-subtle: rgba(245, 158, 11, 0.12);
+  --status-failed: #ef4444;
+  --status-failed-subtle: rgba(239, 68, 68, 0.12);
+  --status-idle: #64748b;
+  --status-idle-subtle: rgba(100, 116, 139, 0.12);
+
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  line-height: 1.5;
+  font-size: 14px;
+}
+
+code, pre, .font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
+
+/* Base Form & Control Styles */
+input[type="text"],
+input[type="number"],
+select,
+textarea {
+  background-color: #0b1120;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  transition: border-color 0.15s ease;
+  width: 100%;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px #3b82f6;
+}
+
+/* Standard Button Styles */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  border: 1px solid transparent;
+  user-select: none;
+}
+
+.btn-primary {
+  background-color: #2563eb;
+  color: #ffffff;
+  border-color: #1d4ed8;
+}
+.btn-primary:hover:not(:disabled) {
+  background-color: #1d4ed8;
+}
+
+.btn-secondary {
+  background-color: #1e293b;
+  color: #e2e8f0;
+  border-color: #334155;
+}
+.btn-secondary:hover:not(:disabled) {
+  background-color: #28364d;
+  border-color: #475569;
+}
+
+.btn-danger {
+  background-color: #dc2626;
+  color: #ffffff;
+  border-color: #b91c1c;
+}
+.btn-danger:hover:not(:disabled) {
+  background-color: #b91c1c;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Card Container */
+.card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 16px;
+}
+
+/* Table styling */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 12px;
+}
+
+.data-table th {
+  padding: 8px 12px;
+  background-color: #0d1527;
+  color: var(--text-secondary);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 11px;
+}
+
+.data-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(51, 70, 109, 0.4);
+  color: var(--text-primary);
+}
+
+.data-table tr:hover td {
+  background-color: rgba(30, 41, 59, 0.4);
+}
+
+/* Status Badges */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.status-badge-healthy {
+  background-color: var(--status-healthy-subtle);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.status-badge-busy {
+  background-color: var(--status-busy-subtle);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.status-badge-overloaded,
+.status-badge-failed {
+  background-color: var(--status-failed-subtle);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.status-badge-idle {
+  background-color: var(--status-idle-subtle);
+  color: #94a3b8;
+  border: 1px solid rgba(100, 116, 139, 0.3);
+}
+
+.status-badge-blue {
+  background-color: var(--accent-blue-subtle);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+/* Metric Progress Bar */
+.progress-bar-container {
+  background-color: #0b1120;
+  border-radius: 2px;
+  height: 6px;
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+}

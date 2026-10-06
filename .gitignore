@@ -1,0 +1,64 @@
+# Node.js dependencies
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# Frontend production builds
+frontend/dist/
+dist/
+build/
+
+# C++ compiled binaries, object files, and build directories
+*.exe
+*.o
+*.obj
+*.dll
+*.so
+*.dylib
+*.out
+*.app
+simulation-engine/bin/
+tests/*.exe
+
+# Temporary files and simulation artifacts
+backend/temp/
+*.tmp
+*.temp
+
+# Environment variables and credentials
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+# (Keep .env.example tracked)
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor and IDE metadata
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+[Dd]esktop.ini

@@ -93,6 +93,12 @@ The platform uses a strict three-tier layered architecture:
 
 ```
 e:\Cloud Event Simulator\
+  ├── start.bat                    # One-click Windows batch startup script
+  ├── start.ps1                    # PowerShell all-in-one startup script
+  ├── .gitignore                   # Git exclusion rules
+  ├── .env.example                 # Environment configuration template
+  ├── package.json                 # Root script definitions
+  │
   ├── simulation-engine/           # C++ Discrete Event Simulation Core
   │   ├── include/
   │   │   ├── Event.h              # Event & Task data structures
@@ -137,18 +143,50 @@ e:\Cloud Event Simulator\
 
 ## 4. Building and Running
 
-### Prerequisites
-- GCC / G++ (supporting C++14)
-- Node.js (v18+) and npm
+### Option A: One-Click Startup (Recommended)
 
-### Quickstart
+Run the automated startup script from the root folder:
+
+- **Windows Batch (Command Prompt or Double-Click):**
+  ```cmd
+  start.bat
+  ```
+
+- **PowerShell:**
+  ```powershell
+  .\start.ps1
+  ```
+
+This single command automatically:
+1. Detects Node.js, npm, and g++ in your PATH.
+2. Compiles the C++ simulation engine binary if not present.
+3. Installs backend dependencies (`npm install`).
+4. Installs frontend dependencies and builds the React bundle (`npm run build`).
+5. Launches the unified server on `http://localhost:5050`.
+6. Opens your default browser automatically.
+
+---
+
+### Option B: Development Mode with Live Reloading
+
+For active code changes with hot module replacement:
+
+```powershell
+.\start.ps1 -Dev
+```
+- Starts the Node.js API with file watching on port `5050`.
+- Starts the Vite frontend development server on port `5173` with automatic API proxying.
+
+---
+
+### Option C: Manual Step-by-Step Setup
 
 1. **Build C++ Simulation Engine**:
    ```bash
    g++ -std=c++14 -O3 simulation-engine/src/main.cpp -o simulation-engine/bin/cloud_sim_engine.exe
    ```
 
-2. **Run C++ Unit Tests**:
+2. **Run C++ Engine Unit Tests**:
    ```bash
    g++ -std=c++14 -O3 tests/test_engine.cpp -o tests/test_engine.exe
    ./tests/test_engine.exe
@@ -156,16 +194,16 @@ e:\Cloud Event Simulator\
 
 3. **Install Dependencies & Start Server**:
    ```bash
-   # In backend directory
+   # Backend
    cd backend
    npm install
    node src/index.js
    ```
 
-   The application starts on:
-   - **Web UI & REST API**: `http://localhost:5050`
+   Server endpoints:
+   - **Unified Web UI & REST API**: `http://localhost:5050`
    - **Health Check**: `http://localhost:5050/health`
-   - **Presets API**: `http://localhost:5050/api/presets`
+   - **Presets Catalog**: `http://localhost:5050/api/presets`
 
 4. **Run Backend Integration Tests**:
    ```bash

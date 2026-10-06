@@ -190,6 +190,10 @@ public:
         json << "    \"total_cost_usd\": " << summary.total_cost_usd << ",\n";
         json << "    \"cost_per_1000_requests_usd\": " << summary.cost_per_1000_requests_usd << ",\n";
         json << "    \"idle_waste_cost_usd\": " << summary.idle_waste_cost_usd << ",\n";
+        json << "    \"avg_queue_wait_ms\": " << summary.avg_queue_wait_ms << ",\n";
+        json << "    \"max_queue_wait_ms\": " << summary.max_queue_wait_ms << ",\n";
+        json << "    \"peak_queue_length\": " << summary.peak_queue_length << ",\n";
+        json << "    \"avg_queue_length\": " << summary.avg_queue_length << ",\n";
         json << "    \"sla_target_latency_ms\": " << summary.sla_target_latency_ms << ",\n";
         json << "    \"sla_violation_count\": " << summary.sla_violation_count << ",\n";
         json << "    \"sla_violation_rate_pct\": " << summary.sla_violation_rate_pct << ",\n";

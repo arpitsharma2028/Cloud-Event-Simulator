@@ -32,6 +32,7 @@ struct SimulationSummary {
     uint64_t total_requests_rejected{0};
     
     // Latencies (ms)
+    // Response Time = Queue Waiting Time + Execution Duration
     double min_latency_ms{0.0};
     double max_latency_ms{0.0};
     double avg_latency_ms{0.0};
@@ -40,7 +41,13 @@ struct SimulationSummary {
     double p95_latency_ms{0.0};
     double p99_latency_ms{0.0};
 
-    // System Throughput
+    // Queue Waiting Time (ms)
+    double avg_queue_wait_ms{0.0};
+    double max_queue_wait_ms{0.0};
+    size_t peak_queue_length{0};
+    double avg_queue_length{0.0};
+
+    // System Throughput (req/sec = completed / total_time)
     double overall_throughput_req_per_sec{0.0};
 
     // Cluster Utilization
@@ -61,13 +68,14 @@ struct SimulationSummary {
     double cluster_availability_pct{100.0};
 
     // Cost ($)
+    // Formula: (vCPU_hours * $0.048) + (RAM_GB_hours * $0.006)
     double compute_cost_usd{0.0};
     double memory_cost_usd{0.0};
     double total_cost_usd{0.0};
     double cost_per_1000_requests_usd{0.0};
     double idle_waste_cost_usd{0.0};
 
-    // SLA
+    // SLA Compliance
     double sla_target_latency_ms{250.0};
     uint64_t sla_violation_count{0};
     double sla_violation_rate_pct{0.0};
@@ -90,10 +98,19 @@ public:
 
     void recordCompletion(const Event& task, double completion_time) {
         total_completed_++;
+        
+        // Total Response Time = Completion Time - Arrival Time
         double latency_sec = completion_time - task.arrival_time;
         if (latency_sec < 0.0) latency_sec = 0.0;
         double latency_ms = latency_sec * 1000.0;
         latencies_ms_.push_back(latency_ms);
+
+        // Queue Waiting Time = Start Time - Arrival Time
+        double wait_sec = 0.0;
+        if (task.start_time > task.arrival_time) {
+            wait_sec = task.start_time - task.arrival_time;
+        }
+        queue_waits_ms_.push_back(wait_sec * 1000.0);
 
         if (latency_ms > sla_target_ms_) {
             sla_violations_++;
@@ -115,10 +132,15 @@ public:
         snap.active_tasks = pool.getTotalActiveTasks();
         snap.queued_tasks = pool.getTotalQueuedTasks();
 
-        // Throughput calculation
+        // Track peak queue length
+        if (snap.queued_tasks > peak_queue_length_) {
+            peak_queue_length_ = snap.queued_tasks;
+        }
+
+        // Throughput calculation: completed requests up to current time
         snap.throughput = (current_time > 0.0) ? (static_cast<double>(total_completed_) / current_time) : 0.0;
 
-        // Recent latency
+        // Recent latency window
         if (!latencies_ms_.empty()) {
             size_t window_size = std::min<size_t>(latencies_ms_.size(), 20);
             double sum = 0.0;
@@ -151,6 +173,7 @@ public:
         s.total_node_recoveries = recoveries;
         s.sla_target_latency_ms = sla_target_ms_;
         s.sla_violation_count = sla_violations_;
+        s.peak_queue_length = peak_queue_length_;
 
         // Latency percentiles
         if (!latencies_ms_.empty()) {
@@ -175,21 +198,30 @@ public:
             s.p99_latency_ms = getPercentile(0.99);
         }
 
-        // Throughput
+        // Queue wait stats
+        if (!queue_waits_ms_.empty()) {
+            double sum_wait = std::accumulate(queue_waits_ms_.begin(), queue_waits_ms_.end(), 0.0);
+            s.avg_queue_wait_ms = sum_wait / queue_waits_ms_.size();
+            s.max_queue_wait_ms = *std::max_element(queue_waits_ms_.begin(), queue_waits_ms_.end());
+        }
+
+        // System throughput
         if (final_time > 0.0) {
             s.overall_throughput_req_per_sec = static_cast<double>(total_completed_) / final_time;
         }
 
-        // Utilization averages and peaks across snapshots
+        // Utilization averages, peak, and average queue length across snapshots
         if (!snapshots_.empty()) {
             double sum_cpu = 0.0;
             double sum_mem = 0.0;
+            double sum_queue = 0.0;
             size_t min_nodes = 999999;
             size_t max_nodes = 0;
 
             for (const auto& snap : snapshots_) {
                 sum_cpu += snap.cpu_utilization;
                 sum_mem += snap.mem_utilization;
+                sum_queue += snap.queued_tasks;
                 s.peak_cpu_utilization = std::max(s.peak_cpu_utilization, snap.cpu_utilization);
                 s.peak_mem_utilization = std::max(s.peak_mem_utilization, snap.mem_utilization);
                 min_nodes = std::min(min_nodes, snap.active_nodes);
@@ -197,6 +229,7 @@ public:
             }
             s.avg_cpu_utilization = sum_cpu / snapshots_.size();
             s.avg_mem_utilization = sum_mem / snapshots_.size();
+            s.avg_queue_length = sum_queue / snapshots_.size();
             s.min_nodes_observed = (min_nodes == 999999) ? 0 : min_nodes;
             s.max_nodes_observed = max_nodes;
         }
@@ -217,7 +250,6 @@ public:
         double total_mem_capacity_sec = 0.0;
 
         for (const auto& node : pool.getAllNodes()) {
-            // Include remaining time up to final_time
             double delta = final_time - node->last_status_change_time;
             double node_uptime = node->total_uptime;
             double node_downtime = node->total_downtime;
@@ -270,8 +302,10 @@ private:
     uint64_t total_failed_{0};
     uint64_t total_rejected_{0};
     uint64_t sla_violations_{0};
+    size_t peak_queue_length_{0};
 
     std::vector<double> latencies_ms_;
+    std::vector<double> queue_waits_ms_;
     std::vector<MetricSnapshot> snapshots_;
 };
 

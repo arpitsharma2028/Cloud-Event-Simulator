@@ -1,5 +1,62 @@
 const PRESETS = [
   {
+    id: "full_lifecycle",
+    name: "End-to-End Cloud Lifecycle (Spike, Auto-Scale, Failure, Recovery, Scale-Down)",
+    description: "Comprehensive demonstration: Normal workload -> traffic surge at T=15s -> high cluster utilization -> reactive autoscaling adds node -> Node 2 crashes at T=34s -> task eviction and redistribution -> Node 2 recovers at T=54s -> surge abates and cluster scales down.",
+    category: "Full Lifecycle",
+    config: {
+      name: "End-to-End Cloud Lifecycle Demo",
+      seed: 12345,
+      duration: 80.0,
+      time_step: 0.5,
+      initial_nodes: 2,
+      default_cpu_per_node: 6.0,
+      default_mem_per_node: 12.0,
+      node_queue_limit: 50,
+      scheduler: "LEAST_LOADED",
+      load_balancer: "LEAST_CONNECTIONS",
+      auto_scaler: {
+        enabled: true,
+        scale_up_threshold: 65.0,
+        scale_down_threshold: 28.0,
+        cooldown_period: 8.0,
+        min_nodes: 2,
+        max_nodes: 5,
+        scale_up_step: 1,
+        scale_down_step: 1
+      },
+      workload: {
+        request_rate: 2.2,
+        min_task_duration: 1.0,
+        max_task_duration: 2.5,
+        min_cpu: 1.0,
+        max_cpu: 2.0,
+        min_mem: 1.5,
+        max_mem: 3.0,
+        priority_high_ratio: 0.25,
+        priority_med_ratio: 0.55,
+        priority_low_ratio: 0.20
+      },
+      spikes: [
+        {
+          start_time: 14.0,
+          duration: 16.0,
+          additional_requests: 120
+        }
+      ],
+      failures: [
+        {
+          node_id: 2,
+          fail_time: 34.0,
+          recovery_time: 54.0
+        }
+      ],
+      sla_target_ms: 300.0,
+      cost_per_vcpu_hr: 0.048,
+      cost_per_gb_hr: 0.006
+    }
+  },
+  {
     id: "steady_state",
     name: "Baseline Steady-State Cloud",
     description: "Standard balanced workload showing smooth scheduling and high SLA compliance under normal traffic.",

@@ -8,6 +8,20 @@
 
 namespace cloudsim {
 
+inline int getEventTypeCausalityRank(EventType t) {
+    switch (t) {
+        case EventType::NODE_FAILURE:   return 0; // Failures occur first
+        case EventType::NODE_RECOVERY:  return 1; // Recoveries restore capacity
+        case EventType::TASK_COMPLETE:  return 2; // Releases resources
+        case EventType::AUTOSCALE_EVAL: return 3; // Evaluates capacity
+        case EventType::WORKLOAD_SPIKE: return 4; // Triggers spike
+        case EventType::TASK_START:     return 5; // Starts queued task
+        case EventType::REQUEST_ARRIVAL:return 6; // New work arrivals
+        case EventType::METRIC_SAMPLE:  return 7; // Sampling metrics
+        default:                        return 8;
+    }
+}
+
 // Comparator for Priority Queue
 // std::priority_queue returns largest element first, so operator() returns true if a should be placed AFTER b.
 struct EventComparator {
@@ -20,9 +34,9 @@ struct EventComparator {
         if (a.priority != b.priority) {
             return a.priority > b.priority;
         }
-        // Event type ordering: Failures and completions happen before arrivals at the exact same instant
+        // Causality ordering: Failures and completions happen before arrivals at the exact same instant
         if (a.type != b.type) {
-            return static_cast<int>(a.type) > static_cast<int>(b.type);
+            return getEventTypeCausalityRank(a.type) > getEventTypeCausalityRank(b.type);
         }
         // Deterministic tie-breaker by ID
         return a.id > b.id;

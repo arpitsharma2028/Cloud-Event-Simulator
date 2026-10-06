@@ -49,6 +49,19 @@ export async function compareSimulations(simulationIds) {
   return await res.json();
 }
 
+export async function runPolicyExperiment(experimentPayload) {
+  const res = await fetch(`${API_BASE}/compare/experiment`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(experimentPayload)
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.error || 'Failed to execute policy experiment');
+  }
+  return await res.json();
+}
+
 export async function deleteSimulation(id) {
   const res = await fetch(`${API_BASE}/simulations/${id}`, {
     method: 'DELETE'

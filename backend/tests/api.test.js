@@ -131,11 +131,44 @@ async function runTests() {
     assert.strictEqual(compareRes.status, 200);
     assert.strictEqual(compareRes.body.runsCount, 2);
     assert(Array.isArray(compareRes.body.matrix));
+    assert(Array.isArray(compareRes.body.metricTable));
+    assert(Array.isArray(compareRes.body.ranking));
     assert(Array.isArray(compareRes.body.insights));
     console.log(`  -> PASSED: Generated comparative analytics with ${compareRes.body.insights.length} Viva insights.`);
 
+    // Test 7: Multi-Policy Experiment Benchmark (/api/compare/experiment)
+    console.log("[TEST 7] Testing /api/compare/experiment endpoint (Fixed Seed Workbench)...");
+    const experimentRes = await request({
+      path: '/api/compare/experiment',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    }, {
+      baseConfig: {
+        duration: 10.0,
+        initial_nodes: 2,
+        seed: 42,
+        workload: {
+          request_rate: 8.0,
+          min_task_duration: 1.0,
+          max_task_duration: 2.0
+        }
+      },
+      experimentType: "SCHEDULING",
+      policies: ["ROUND_ROBIN", "LEAST_LOADED", "PRIORITY_BASED"]
+    });
+    assert.strictEqual(experimentRes.status, 200);
+    assert.strictEqual(experimentRes.body.runsCount, 3);
+    assert(Array.isArray(experimentRes.body.matrix));
+    assert(Array.isArray(experimentRes.body.metricTable));
+    assert(Array.isArray(experimentRes.body.ranking));
+    assert.strictEqual(experimentRes.body.ranking.length, 3);
+    assert(experimentRes.body.metricTable.some(m => m.metric === "Avg Response Time"));
+    assert(experimentRes.body.metricTable.some(m => m.metric === "Throughput"));
+    assert(experimentRes.body.metricTable.some(m => m.metric === "Simulated Cost"));
+    console.log(`  -> PASSED: Experiment benchmark completed with ranking (#1: ${experimentRes.body.ranking[0].name}).`);
+
     console.log("=========================================");
-    console.log(" ALL BACKEND API TESTS PASSED (6/6)!");
+    console.log(" ALL BACKEND API TESTS PASSED (7/7)!");
     console.log("=========================================");
     process.exit(0);
   } finally {

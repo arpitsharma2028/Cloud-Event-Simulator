@@ -184,7 +184,9 @@ export default function App() {
           <ComparisonStudio
             comparisonData={comparisonData}
             simulations={simulations}
+            presets={presets}
             onCompareSimulations={handleCompareSimulations}
+            onSelectSimulation={handleSelectSimulation}
           />
         )}
       </main>

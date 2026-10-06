@@ -167,24 +167,28 @@ export default function ResultsAnalytics({
       {/* Detailed Analysis Breakdown Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
         
-        {/* Card 1: Latency Distribution */}
+        {/* Card 1: Latency Distribution & Queue Decomposition */}
         <div className="card">
           <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '14px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '8px' }}>
-            Latency Distribution & Tail Analysis
+            Latency Distribution & Queue Decomposition
           </div>
           <table className="data-table" style={{ margin: 0 }}>
             <tbody>
               <tr>
-                <td style={{ color: 'var(--text-secondary)' }}>Minimum Latency</td>
-                <td className="font-mono" style={{ textAlign: 'right' }}>{s.min_latency_ms.toFixed(1)} ms</td>
+                <td style={{ color: 'var(--text-secondary)' }}>Avg Queue Wait Time</td>
+                <td className="font-mono" style={{ textAlign: 'right', color: '#60a5fa' }}>{(s.avg_queue_wait_ms ?? 0).toFixed(1)} ms</td>
               </tr>
               <tr>
-                <td style={{ color: 'var(--text-secondary)' }}>Median (P50)</td>
-                <td className="font-mono" style={{ textAlign: 'right', fontWeight: 600 }}>{s.p50_latency_ms.toFixed(1)} ms</td>
+                <td style={{ color: 'var(--text-secondary)' }}>Avg Task Execution Duration</td>
+                <td className="font-mono" style={{ textAlign: 'right' }}>{Math.max(0, s.avg_latency_ms - (s.avg_queue_wait_ms ?? 0)).toFixed(1)} ms</td>
               </tr>
               <tr>
-                <td style={{ color: 'var(--text-secondary)' }}>P90 Tail Latency</td>
-                <td className="font-mono" style={{ textAlign: 'right' }}>{s.p90_latency_ms.toFixed(1)} ms</td>
+                <td style={{ color: 'var(--text-secondary)' }}>Total Average Latency</td>
+                <td className="font-mono" style={{ textAlign: 'right', fontWeight: 700, color: '#f8fafc' }}>{s.avg_latency_ms.toFixed(1)} ms</td>
+              </tr>
+              <tr>
+                <td style={{ color: 'var(--text-secondary)' }}>Median (P50) Latency</td>
+                <td className="font-mono" style={{ textAlign: 'right' }}>{s.p50_latency_ms.toFixed(1)} ms</td>
               </tr>
               <tr>
                 <td style={{ color: 'var(--text-secondary)' }}>P95 Tail Latency</td>
@@ -193,17 +197,14 @@ export default function ResultsAnalytics({
                 </td>
               </tr>
               <tr>
-                <td style={{ color: 'var(--text-secondary)' }}>P99 Worst Case</td>
-                <td className="font-mono" style={{ textAlign: 'right', color: s.p99_latency_ms > s.sla_target_latency_ms ? '#f87171' : '#60a5fa' }}>
-                  {s.p99_latency_ms.toFixed(1)} ms
-                </td>
-              </tr>
-              <tr>
-                <td style={{ color: 'var(--text-secondary)' }}>Maximum Latency</td>
+                <td style={{ color: 'var(--text-secondary)' }}>Maximum Latency Observed</td>
                 <td className="font-mono" style={{ textAlign: 'right' }}>{s.max_latency_ms.toFixed(1)} ms</td>
               </tr>
             </tbody>
           </table>
+          <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '8px', fontStyle: 'italic' }}>
+            Mathematical Identity: Response Time = Queue Wait Time + Execution Duration
+          </div>
         </div>
 
         {/* Card 2: Cluster Utilization & Elasticity */}
@@ -223,15 +224,15 @@ export default function ResultsAnalytics({
               </tr>
               <tr>
                 <td style={{ color: 'var(--text-secondary)' }}>Average Memory Utilization</td>
-                <td className="font-mono" style={{ textAlign: 'right' }}>{s.avg_mem_utilization.toFixed(1)}%</td>
+                <td className="font-mono" style={{ textAlign: 'right' }}>{(s.avg_mem_utilization ?? 0).toFixed(1)}%</td>
               </tr>
               <tr>
-                <td style={{ color: 'var(--text-secondary)' }}>Scale-Up Operations</td>
-                <td className="font-mono" style={{ textAlign: 'right', color: '#a78bfa' }}>+{s.scale_up_events} events</td>
+                <td style={{ color: 'var(--text-secondary)' }}>Peak Queue Length</td>
+                <td className="font-mono" style={{ textAlign: 'right' }}>{s.peak_queue_length ?? 0} tasks</td>
               </tr>
               <tr>
-                <td style={{ color: 'var(--text-secondary)' }}>Scale-Down Operations</td>
-                <td className="font-mono" style={{ textAlign: 'right', color: '#fbbf24' }}>-{s.scale_down_events} events</td>
+                <td style={{ color: 'var(--text-secondary)' }}>Scale-Up / Scale-Down Events</td>
+                <td className="font-mono" style={{ textAlign: 'right', color: '#a78bfa' }}>+{s.scale_up_events} / -{s.scale_down_events}</td>
               </tr>
               <tr>
                 <td style={{ color: 'var(--text-secondary)' }}>Cluster Scale Range</td>

@@ -214,6 +214,141 @@ function deleteSimulation(id) {
 }
 
 /**
+ * Transform simulation runs into standardized comparative matrix
+ */
+function buildMatrixFromRuns(runs) {
+  return runs.map(r => ({
+    id: r.id,
+    name: r.config.name,
+    scheduler: r.config.scheduler,
+    loadBalancer: r.config.load_balancer,
+    autoScalerEnabled: r.config.auto_scaler ? r.config.auto_scaler.enabled : false,
+    initialNodes: r.config.initial_nodes,
+    totalRequests: r.result.summary.total_requests_submitted,
+    completedRequests: r.result.summary.total_requests_completed,
+    failedRequests: r.result.summary.total_requests_failed,
+    rejectedRequests: r.result.summary.total_requests_rejected,
+    successRatePct: r.result.summary.overall_success_rate_pct,
+    throughputReqSec: r.result.summary.overall_throughput_req_per_sec,
+    avgLatencyMs: r.result.summary.avg_latency_ms,
+    p95LatencyMs: r.result.summary.p95_latency_ms,
+    p99LatencyMs: r.result.summary.p99_latency_ms,
+    avgQueueWaitMs: r.result.summary.avg_queue_wait_ms ?? 0,
+    maxQueueWaitMs: r.result.summary.max_queue_wait_ms ?? 0,
+    avgQueueLength: r.result.summary.avg_queue_length ?? 0,
+    peakQueueLength: r.result.summary.peak_queue_length ?? 0,
+    avgCpuUtil: r.result.summary.avg_cpu_utilization,
+    peakCpuUtil: r.result.summary.peak_cpu_utilization,
+    avgMemUtil: r.result.summary.avg_mem_utilization ?? 0,
+    peakMemUtil: r.result.summary.peak_mem_utilization ?? 0,
+    scaleUpEvents: r.result.summary.scale_up_events,
+    scaleDownEvents: r.result.summary.scale_down_events,
+    nodeFailures: r.result.summary.total_node_failures ?? 0,
+    nodeRecoveries: r.result.summary.total_node_recoveries ?? 0,
+    totalCostUsd: r.result.summary.total_cost_usd,
+    costPer1000ReqUsd: r.result.summary.cost_per_1000_requests_usd,
+    idleWasteUsd: r.result.summary.idle_waste_cost_usd,
+    slaViolations: r.result.summary.sla_violation_count,
+    slaCompliancePct: r.result.summary.sla_compliance_rate_pct,
+    clusterAvailabilityPct: r.result.summary.cluster_availability_pct
+  }));
+}
+
+/**
+ * Format side-by-side metric comparison table matching Section 3 requirements:
+ * Metric | Variant 1 | Variant 2 | Variant 3...
+ */
+function formatMetricTable(matrix) {
+  const definitions = [
+    { label: "Avg Response Time", key: "avgLatencyMs", unit: "ms", lowerIsBetter: true },
+    { label: "Avg Queue Wait", key: "avgQueueWaitMs", unit: "ms", lowerIsBetter: true },
+    { label: "Throughput", key: "throughputReqSec", unit: "req/s", lowerIsBetter: false },
+    { label: "Avg CPU Utilization", key: "avgCpuUtil", unit: "%", lowerIsBetter: null },
+    { label: "Avg Memory Utilization", key: "avgMemUtil", unit: "%", lowerIsBetter: null },
+    { label: "Peak Queue Length", key: "peakQueueLength", unit: "tasks", lowerIsBetter: true },
+    { label: "Completed Requests", key: "completedRequests", unit: "reqs", lowerIsBetter: false },
+    { label: "Failed Requests", key: "failedRequests", unit: "reqs", lowerIsBetter: true },
+    { label: "SLA Violations", key: "slaViolations", unit: "breaches", lowerIsBetter: true },
+    { label: "SLA Compliance Rate", key: "slaCompliancePct", unit: "%", lowerIsBetter: false },
+    { label: "Scaling Events", key: "scalingEvents", unit: "events", lowerIsBetter: null,
+      format: r => `+${r.scaleUpEvents} / -${r.scaleDownEvents}` },
+    { label: "Node Failures", key: "nodeFailures", unit: "events", lowerIsBetter: true },
+    { label: "Simulated Cost", key: "totalCostUsd", unit: "$", lowerIsBetter: true,
+      format: r => `$${r.totalCostUsd.toFixed(4)}` },
+    { label: "Cost per 1k Reqs", key: "costPer1000ReqUsd", unit: "$", lowerIsBetter: true,
+      format: r => `$${r.costPer1000ReqUsd.toFixed(4)}` }
+  ];
+
+  return definitions.map(def => {
+    const values = {};
+    let bestVariantId = null;
+    let bestValue = null;
+
+    matrix.forEach(run => {
+      const rawVal = run[def.key];
+      values[run.id] = def.format ? def.format(run) : (typeof rawVal === 'number' ? Number(rawVal.toFixed(2)) : rawVal);
+
+      if (def.lowerIsBetter !== null && typeof rawVal === 'number') {
+        if (bestValue === null) {
+          bestValue = rawVal;
+          bestVariantId = run.id;
+        } else if (def.lowerIsBetter && rawVal < bestValue) {
+          bestValue = rawVal;
+          bestVariantId = run.id;
+        } else if (!def.lowerIsBetter && rawVal > bestValue) {
+          bestValue = rawVal;
+          bestVariantId = run.id;
+        }
+      }
+    });
+
+    return {
+      metric: def.label,
+      unit: def.unit,
+      values,
+      bestVariantId
+    };
+  });
+}
+
+/**
+ * Multi-objective policy ranking based on SLA, Latency, Throughput, and Cost
+ */
+function calculatePolicyRankings(matrix) {
+  const maxLatency = Math.max(...matrix.map(m => m.avgLatencyMs || 1));
+  const maxThroughput = Math.max(...matrix.map(m => m.throughputReqSec || 1));
+  const maxCost = Math.max(...matrix.map(m => m.totalCostUsd || 1));
+
+  const scored = matrix.map(m => {
+    const slaScore = (m.slaCompliancePct / 100) * 35;
+    const latencyScore = ((maxLatency - m.avgLatencyMs) / maxLatency) * 25;
+    const throughputScore = (m.throughputReqSec / maxThroughput) * 20;
+    const costScore = ((maxCost - m.totalCostUsd) / maxCost) * 20;
+    const compositeScore = Math.max(0, Math.min(100, slaScore + latencyScore + throughputScore + costScore));
+
+    return {
+      id: m.id,
+      name: m.name,
+      scheduler: m.scheduler,
+      loadBalancer: m.loadBalancer,
+      score: Number(compositeScore.toFixed(1)),
+      slaCompliancePct: m.slaCompliancePct,
+      avgLatencyMs: m.avgLatencyMs,
+      throughputReqSec: m.throughputReqSec,
+      totalCostUsd: m.totalCostUsd
+    };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+
+  return scored.map((s, idx) => ({
+    ...s,
+    rank: idx + 1,
+    grade: s.score >= 85 ? 'A+' : s.score >= 70 ? 'A' : s.score >= 55 ? 'B' : 'C'
+  }));
+}
+
+/**
  * Compare two or more completed simulation runs side-by-side
  * Generates comparative metric matrix and academic insights
  */
@@ -230,40 +365,106 @@ function compareSimulations(simIds) {
     throw new Error("At least two completed simulations are required for comparison.");
   }
 
-  const comparisonMatrix = runs.map(r => ({
-    id: r.id,
-    name: r.config.name,
-    scheduler: r.config.scheduler,
-    loadBalancer: r.config.load_balancer,
-    autoScalerEnabled: r.config.auto_scaler ? r.config.auto_scaler.enabled : false,
-    initialNodes: r.config.initial_nodes,
-    totalRequests: r.result.summary.total_requests_submitted,
-    completedRequests: r.result.summary.total_requests_completed,
-    failedRequests: r.result.summary.total_requests_failed,
-    rejectedRequests: r.result.summary.total_requests_rejected,
-    successRatePct: r.result.summary.overall_success_rate_pct,
-    throughputReqSec: r.result.summary.overall_throughput_req_per_sec,
-    avgLatencyMs: r.result.summary.avg_latency_ms,
-    p95LatencyMs: r.result.summary.p95_latency_ms,
-    p99LatencyMs: r.result.summary.p99_latency_ms,
-    avgCpuUtil: r.result.summary.avg_cpu_utilization,
-    peakCpuUtil: r.result.summary.peak_cpu_utilization,
-    scaleUpEvents: r.result.summary.scale_up_events,
-    scaleDownEvents: r.result.summary.scale_down_events,
-    totalCostUsd: r.result.summary.total_cost_usd,
-    costPer1000ReqUsd: r.result.summary.cost_per_1000_requests_usd,
-    idleWasteUsd: r.result.summary.idle_waste_cost_usd,
-    slaViolations: r.result.summary.sla_violation_count,
-    slaCompliancePct: r.result.summary.sla_compliance_rate_pct,
-    clusterAvailabilityPct: r.result.summary.cluster_availability_pct
-  }));
-
-  // Identify standout metrics & generate viva explanations
+  const comparisonMatrix = buildMatrixFromRuns(runs);
+  const metricTable = formatMetricTable(comparisonMatrix);
+  const ranking = calculatePolicyRankings(comparisonMatrix);
   const insights = generateVivaExplanations(comparisonMatrix);
 
   return {
     runsCount: runs.length,
     matrix: comparisonMatrix,
+    metricTable,
+    ranking,
+    insights
+  };
+}
+
+/**
+ * Run a multi-policy experimentation benchmark on identical workload & seed
+ */
+async function runExperiment({ baseConfig, experimentType = 'SCHEDULING', policies = [], seed }) {
+  if (!baseConfig) {
+    throw new Error("baseConfig is required for policy experimentation.");
+  }
+
+  const experimentSeed = seed !== undefined ? Number(seed) : (baseConfig.seed || 42);
+  let variants = [];
+
+  if (experimentType === 'SCHEDULING') {
+    const targetPolicies = policies.length > 0
+      ? policies
+      : ['ROUND_ROBIN', 'LEAST_LOADED', 'PRIORITY_BASED', 'FIRST_FIT'];
+
+    variants = targetPolicies.map(p => ({
+      name: `${p.replace(/_/g, ' ')} Policy`,
+      scheduler: p,
+      loadBalancer: baseConfig.load_balancer || 'ROUND_ROBIN',
+      autoScaler: baseConfig.auto_scaler
+    }));
+  } else if (experimentType === 'LOAD_BALANCING') {
+    const targetLBs = policies.length > 0
+      ? policies
+      : ['ROUND_ROBIN', 'LEAST_CONNECTIONS', 'WEIGHTED'];
+
+    variants = targetLBs.map(lb => ({
+      name: `${lb.replace(/_/g, ' ')} Load Balancer`,
+      scheduler: baseConfig.scheduler || 'ROUND_ROBIN',
+      loadBalancer: lb,
+      autoScaler: baseConfig.auto_scaler
+    }));
+  } else if (experimentType === 'AUTOSCALING') {
+    variants = [
+      {
+        name: 'Fixed Capacity (No Scaling)',
+        scheduler: baseConfig.scheduler || 'LEAST_LOADED',
+        loadBalancer: baseConfig.load_balancer || 'LEAST_CONNECTIONS',
+        autoScaler: { enabled: false, min_nodes: baseConfig.initial_nodes || 2, max_nodes: baseConfig.initial_nodes || 2 }
+      },
+      {
+        name: 'Reactive Elasticity (Std Thresholds)',
+        scheduler: baseConfig.scheduler || 'LEAST_LOADED',
+        loadBalancer: baseConfig.load_balancer || 'LEAST_CONNECTIONS',
+        autoScaler: { enabled: true, scale_up_threshold: 70.0, scale_down_threshold: 30.0, cooldown_period: 10.0, min_nodes: 2, max_nodes: 6, scale_up_step: 1, scale_down_step: 1 }
+      },
+      {
+        name: 'Aggressive Elasticity (Fast Scale)',
+        scheduler: baseConfig.scheduler || 'LEAST_LOADED',
+        loadBalancer: baseConfig.load_balancer || 'LEAST_CONNECTIONS',
+        autoScaler: { enabled: true, scale_up_threshold: 55.0, scale_down_threshold: 35.0, cooldown_period: 6.0, min_nodes: 2, max_nodes: 8, scale_up_step: 2, scale_down_step: 1 }
+      }
+    ];
+  } else {
+    throw new Error(`Unsupported experimentType: ${experimentType}`);
+  }
+
+  // Execute each variant with exact same seed and workload
+  const completedRuns = [];
+  for (const variant of variants) {
+    const runConfig = {
+      ...baseConfig,
+      name: variant.name,
+      seed: experimentSeed,
+      scheduler: variant.scheduler,
+      load_balancer: variant.loadBalancer,
+      auto_scaler: variant.autoScaler
+    };
+
+    const runRecord = await executeSimulation(runConfig);
+    completedRuns.push(runRecord);
+  }
+
+  const matrix = buildMatrixFromRuns(completedRuns);
+  const metricTable = formatMetricTable(matrix);
+  const ranking = calculatePolicyRankings(matrix);
+  const insights = generateVivaExplanations(matrix);
+
+  return {
+    experimentType,
+    seed: experimentSeed,
+    runsCount: completedRuns.length,
+    matrix,
+    metricTable,
+    ranking,
     insights
   };
 }
@@ -271,35 +472,42 @@ function compareSimulations(simIds) {
 function generateVivaExplanations(matrix) {
   const notes = [];
 
-  // Sort by throughput
   const bestThroughput = [...matrix].sort((a, b) => b.throughputReqSec - a.throughputReqSec)[0];
   const lowestLatency = [...matrix].sort((a, b) => a.avgLatencyMs - b.avgLatencyMs)[0];
   const lowestCost = [...matrix].sort((a, b) => a.totalCostUsd - b.totalCostUsd)[0];
   const highestSla = [...matrix].sort((a, b) => b.slaCompliancePct - a.slaCompliancePct)[0];
 
-  notes.push({
-    category: "Throughput Champion",
-    title: `${bestThroughput.name} achieved highest throughput (${bestThroughput.throughputReqSec.toFixed(2)} req/s)`,
-    explanation: `Using ${bestThroughput.scheduler} with ${bestThroughput.loadBalancer}, this run effectively maximized server parallelism and kept queues moving smoothly.`
-  });
+  if (bestThroughput) {
+    notes.push({
+      category: "Throughput Champion",
+      title: `${bestThroughput.name} achieved highest throughput (${bestThroughput.throughputReqSec.toFixed(2)} req/s)`,
+      explanation: `Using ${bestThroughput.scheduler} with ${bestThroughput.loadBalancer}, this configuration maximized cluster concurrency and minimized idling.`
+    });
+  }
 
-  notes.push({
-    category: "Latency & Responsiveness",
-    title: `${lowestLatency.name} delivered lowest average latency (${lowestLatency.avgLatencyMs.toFixed(1)} ms)`,
-    explanation: `P95 latency was ${lowestLatency.p95LatencyMs.toFixed(1)} ms. Proactive workload distribution avoided queuing hotspots on individual virtual nodes.`
-  });
+  if (lowestLatency) {
+    notes.push({
+      category: "Latency & Responsiveness",
+      title: `${lowestLatency.name} delivered lowest average latency (${lowestLatency.avgLatencyMs.toFixed(1)} ms)`,
+      explanation: `Average queue wait time was ${lowestLatency.avgQueueWaitMs.toFixed(1)} ms. Proactive load balancing minimized task queuing behind heavy jobs.`
+    });
+  }
 
-  notes.push({
-    category: "Cost vs Performance Trade-off",
-    title: `${lowestCost.name} had minimum simulated cost ($${lowestCost.totalCostUsd.toFixed(4)})`,
-    explanation: `Cost efficiency stood at $${lowestCost.costPer1000ReqUsd.toFixed(4)} per 1,000 requests. Notice how tighter node scaling saves money, but evaluate if it compromised SLA targets.`
-  });
+  if (lowestCost) {
+    notes.push({
+      category: "Cost vs Performance Trade-off",
+      title: `${lowestCost.name} had minimum simulated cost ($${lowestCost.totalCostUsd.toFixed(4)})`,
+      explanation: `Cost efficiency was $${lowestCost.costPer1000ReqUsd.toFixed(4)} per 1,000 requests. Note the balance between provisioned node hours and SLA targets.`
+    });
+  }
 
-  notes.push({
-    category: "SLA & Reliability",
-    title: `${highestSla.name} maintained highest SLA compliance (${highestSla.slaCompliancePct.toFixed(1)}%)`,
-    explanation: `Experienced only ${highestSla.slaViolations} SLA breaches under target threshold. High availability was preserved throughout the test workload.`
-  });
+  if (highestSla) {
+    notes.push({
+      category: "SLA & Reliability",
+      title: `${highestSla.name} maintained highest SLA compliance (${highestSla.slaCompliancePct.toFixed(1)}%)`,
+      explanation: `Experienced ${highestSla.slaViolations} SLA breaches under target threshold. High service availability was preserved throughout the test workload.`
+    });
+  }
 
   return notes;
 }
@@ -310,5 +518,6 @@ module.exports = {
   getAllSimulations,
   getSimulationById,
   deleteSimulation,
-  compareSimulations
+  compareSimulations,
+  runExperiment
 };

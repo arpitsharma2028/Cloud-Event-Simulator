@@ -1,5 +1,11 @@
 # C++ Discrete-Event Simulation Engine
 
+> For technology rationale, mathematical formulas, feature relevance, caveats and interview answers, read [docs/FEATURE_REFERENCE.md](../docs/FEATURE_REFERENCE.md) alongside this implementation guide.
+
+## Current output contract
+
+In addition to final node states and aggregate metrics, every telemetry snapshot exports its exact node list: identity, CPU/RAM capacity and use, status, active/queued tasks, and task counters. This is essential for truthful replay after autoscaling removes nodes from the final pool.
+
 The core simulation engine of the Cloud Event Simulator is a deterministic discrete-event simulator (DES) written in standard C++14 with zero external dependencies.
 
 It serves as the single source of truth for all cloud infrastructure behavior, resource accounting, scheduling decisions, elasticity transitions, hardware failures, and metrics telemetry.

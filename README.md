@@ -1,5 +1,13 @@
 # Cloud Event Simulator
 
+> **Current feature and interview reference:** see [docs/FEATURE_REFERENCE.md](docs/FEATURE_REFERENCE.md). It is the concise source for every implemented feature, relevance, formulas, technology choices, limitations, screenshots, and viva answers.
+
+## Current visual tour
+
+| Beginner setup | Replay and scheduler explanation |
+| --- | --- |
+| ![Workload Studio](docs/images/workload-studio.png) | ![Simulation Console](docs/images/replay-console.png) |
+
 A deterministic cloud infrastructure behavior and discrete-event simulation platform built for academic evaluation, algorithm benchmarking, and software engineering interview defense.
 
 ---
@@ -78,7 +86,7 @@ Here is the exact step-by-step trace of how a request moves through the system f
    - *Why*: Manages API endpoints and routes.
 4. **Backend Validates Configuration Bounds**:
    - *What*: Zod schema validates all numerical boundaries (e.g. duration between 1.0s and 600.0s).
-   - *Component*: `backend/src/schemas/simulationSchema.js`
+   - *Component*: `backend/src/schemas/validation.js`
    - *Why*: Protects against out-of-bounds parameters or malformed input before spawning native processes.
 5. **Node Controller Writes Temporary Config File**:
    - *What*: Node serializes the validated configuration into `backend/temp/sim_config_<id>.json`.
@@ -120,7 +128,7 @@ Here is the exact step-by-step trace of how a request moves through the system f
     - *Component*: `simulation-engine/include/SimulationEngine.h`
     - *Why*: Simulates compute execution over virtual time.
 14. **Task Completes & Resources are Released**:
-    - *What*: When `TASK_COMPLETE` fires, `Node::deallocate()` restores the exact vCPU and RAM. The node then pops the next waiting task from `waiting_queue` and starts it.
+    - *What*: When `TASK_COMPLETE` fires, `Node::release()` restores the exact vCPU and RAM. The node then pops the next waiting task from `waiting_queue` and starts it.
     - *Component*: `simulation-engine/include/Node.h`
     - *Why*: Reclaims capacity and drains pending queues.
 15. **Metrics are Updated**:
@@ -316,7 +324,7 @@ The backend implements defense-in-depth security principles:
 - **No Command Injection**: Uses `child_process.spawn()` with an argument array and `shell: false`. Shell command interpolation is impossible.
 - **Safety Watchdog Timer**: A 45-second wall-clock timer kills runaway child processes with `SIGKILL`.
 - **Zod Schema Validation**: Enforces strict boundaries on numerical inputs before spawning native processes.
-- **Network Hardening**: Helmet HTTP security headers, CORS origin control, and rate limiting (120 req/min).
+- **Network Hardening**: Helmet HTTP security headers and rate limiting (300 requests per 15 minutes). CORS is currently permissive for local development and must be restricted before public deployment.
 
 ---
 

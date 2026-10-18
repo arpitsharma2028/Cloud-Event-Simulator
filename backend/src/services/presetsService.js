@@ -1,8 +1,8 @@
 const PRESETS = [
   {
     id: "full_lifecycle",
-    name: "End-to-End Cloud Lifecycle (Spike, Auto-Scale, Failure, Recovery, Scale-Down)",
-    description: "Comprehensive demonstration: Normal workload -> traffic surge at T=15s -> high cluster utilization -> reactive autoscaling adds node -> Node 2 crashes at T=34s -> task eviction and redistribution -> Node 2 recovers at T=54s -> surge abates and cluster scales down.",
+    name: "Complete Demo — Spike, Scale, Failure & Recovery",
+    description: "A full tour: traffic rises, servers scale up, one server fails and recovers, then unused capacity is removed.",
     category: "Full Lifecycle",
     config: {
       name: "End-to-End Cloud Lifecycle Demo",
@@ -58,8 +58,8 @@ const PRESETS = [
   },
   {
     id: "steady_state",
-    name: "Baseline Steady-State Cloud",
-    description: "Standard balanced workload showing smooth scheduling and high SLA compliance under normal traffic.",
+    name: "Normal Traffic — Stable Cluster",
+    description: "A calm everyday workload. Use this first to see requests shared across servers without dramatic events.",
     category: "Basics",
     config: {
       name: "Baseline Steady-State Cloud",
@@ -103,8 +103,8 @@ const PRESETS = [
   },
   {
     id: "elastic_spike",
-    name: "Flash Sale Spike & Elastic Autoscaling",
-    description: "Sudden traffic surge at T=20s triggers horizontal auto-scaling, adding nodes to protect SLA before cooling down.",
+    name: "Traffic Surge — Scale Up",
+    description: "A short flash-sale spike adds servers when the starting two cannot keep up.",
     category: "Elasticity",
     config: {
       name: "Flash Sale Spike & Elastic Autoscaling",
@@ -154,8 +154,8 @@ const PRESETS = [
   },
   {
     id: "node_outage",
-    name: "Chaos Outage & Node Recovery",
-    description: "Simulates sudden crash of Node 2 at T=20s with task eviction, followed by automated node recovery at T=42s.",
+    name: "Server Failure — Recover",
+    description: "Server 2 fails, its work is affected, and the same server returns later.",
     category: "Fault Tolerance",
     config: {
       name: "Chaos Outage & Node Recovery",
@@ -200,8 +200,8 @@ const PRESETS = [
   },
   {
     id: "priority_preemption",
-    name: "Priority-Based Workload Scheduling",
-    description: "Evaluates prioritization of Mission-Critical (P1) tasks over Batch (P3) workloads during heavy cluster utilization.",
+    name: "Priority Traffic — Important Requests First",
+    description: "Shows how high-priority requests are handled when the cluster is busy.",
     category: "Scheduling",
     config: {
       name: "Priority-Based Workload Scheduling",
@@ -240,8 +240,8 @@ const PRESETS = [
   },
   {
     id: "bottleneck_overload",
-    name: "Under-Provisioned Cluster & SLA Breach",
-    description: "Severe overload on fixed-capacity cluster to demonstrate backpressure queue saturation and high SLA breach rate.",
+    name: "Too Few Servers — Queue & SLA Breach",
+    description: "A fixed small cluster becomes overloaded, so requests wait or fail and the SLA is missed.",
     category: "SLA Analysis",
     config: {
       name: "Under-Provisioned Cluster & SLA Breach",
@@ -274,6 +274,96 @@ const PRESETS = [
       spikes: [],
       failures: [],
       sla_target_ms: 150.0,
+      cost_per_vcpu_hr: 0.048,
+      cost_per_gb_hr: 0.006
+    }
+  },
+  {
+    id: "scale_up_and_down",
+    name: "Autoscaling Story — Scale Up Then Down",
+    description: "A burst arrives early, extra servers are added, and they are removed again after the burst finishes.",
+    category: "Elasticity",
+    config: {
+      name: "Scale Up Then Down Demo",
+      seed: 2026,
+      duration: 50.0,
+      time_step: 0.5,
+      initial_nodes: 1,
+      default_cpu_per_node: 4.0,
+      default_mem_per_node: 8.0,
+      node_queue_limit: 100,
+      scheduler: "LEAST_LOADED",
+      load_balancer: "LEAST_CONNECTIONS",
+      auto_scaler: {
+        enabled: true,
+        scale_up_threshold: 45.0,
+        scale_down_threshold: 15.0,
+        cooldown_period: 4.0,
+        min_nodes: 1,
+        max_nodes: 5,
+        scale_up_step: 1,
+        scale_down_step: 1
+      },
+      workload: {
+        request_rate: 0.3,
+        min_task_duration: 1.0,
+        max_task_duration: 2.0,
+        min_cpu: 1.5,
+        max_cpu: 2.0,
+        min_mem: 2.0,
+        max_mem: 3.0,
+        priority_high_ratio: 0.2,
+        priority_med_ratio: 0.6,
+        priority_low_ratio: 0.2
+      },
+      spikes: [{ start_time: 6.0, duration: 10.0, additional_requests: 120 }],
+      failures: [],
+      sla_target_ms: 300.0,
+      cost_per_vcpu_hr: 0.048,
+      cost_per_gb_hr: 0.006
+    }
+  },
+  {
+    id: "scale_down_idle",
+    name: "Scale Down — Remove Idle Servers",
+    description: "Starts with too many servers and removes idle capacity one server at a time until only two remain.",
+    category: "Elasticity",
+    config: {
+      name: "Idle Capacity Scale-Down Demo",
+      seed: 314,
+      duration: 32.0,
+      time_step: 0.5,
+      initial_nodes: 6,
+      default_cpu_per_node: 4.0,
+      default_mem_per_node: 8.0,
+      node_queue_limit: 30,
+      scheduler: "LEAST_LOADED",
+      load_balancer: "LEAST_CONNECTIONS",
+      auto_scaler: {
+        enabled: true,
+        scale_up_threshold: 85.0,
+        scale_down_threshold: 20.0,
+        cooldown_period: 4.0,
+        min_nodes: 2,
+        max_nodes: 6,
+        scale_up_step: 1,
+        scale_down_step: 1
+      },
+      workload: {
+        request_rate: 0.1,
+        min_task_duration: 0.5,
+        max_task_duration: 1.0,
+        min_cpu: 0.5,
+        max_cpu: 1.0,
+        min_mem: 0.5,
+        max_mem: 1.0,
+        priority_high_ratio: 0.2,
+        priority_med_ratio: 0.6,
+        priority_low_ratio: 0.2
+      },
+      spikes: [],
+      failures: [],
+      sla_target_ms: 300.0,
       cost_per_vcpu_hr: 0.048,
       cost_per_gb_hr: 0.006
     }

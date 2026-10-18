@@ -1,9 +1,13 @@
 import React, { useState } from 'react';
 import { Play, Sparkles, RefreshCw, AlertTriangle, Layers, Cpu, Server, Activity, ShieldAlert, DollarSign } from 'lucide-react';
 
+// Keep an empty field empty while the user edits it. Validation runs on submission.
+const numberOrEmpty = (value) => value === '' ? '' : Number(value);
+
 export default function WorkloadStudio({ presets = [], onRunSimulation, isRunning = false }) {
   const [selectedPresetId, setSelectedPresetId] = useState('');
   const [validationError, setValidationError] = useState(null);
+  const [beginnerMode, setBeginnerMode] = useState(true);
 
   // Form State
   const [config, setConfig] = useState({
@@ -114,6 +118,20 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
     e.preventDefault();
     setValidationError(null);
 
+    const requiredNumbers = [
+      config.seed, config.duration, config.time_step, config.initial_nodes,
+      config.default_cpu_per_node, config.default_mem_per_node, config.node_queue_limit,
+      config.auto_scaler.scale_up_threshold, config.auto_scaler.scale_down_threshold,
+      config.auto_scaler.cooldown_period, config.auto_scaler.min_nodes, config.auto_scaler.max_nodes,
+      config.workload.request_rate, config.workload.min_task_duration, config.workload.max_task_duration,
+      config.workload.min_cpu, config.workload.max_cpu, config.workload.min_mem, config.workload.max_mem,
+      config.sla_target_ms
+    ];
+    if (requiredNumbers.some(value => value === '' || !Number.isFinite(value))) {
+      setValidationError('Please complete every numeric field before running the simulation.');
+      return;
+    }
+
     // Basic frontend checks
     if (config.auto_scaler.min_nodes > config.auto_scaler.max_nodes) {
       setValidationError("Auto-scaler minimum nodes cannot be greater than maximum nodes.");
@@ -139,6 +157,20 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
     LEAST_CONNECTIONS: "Directs traffic to the virtual node with the fewest active concurrent requests.",
     WEIGHTED: "Routes requests proportional to assigned node compute capacity weights."
   };
+
+  const updateQuickConfig = (path, value) => {
+    if (path === 'nodes') setConfig(prev => ({ ...prev, initial_nodes: Number(value) }));
+    if (path === 'traffic') setConfig(prev => ({ ...prev, workload: { ...prev.workload, request_rate: Number(value) } }));
+    if (path === 'autoscale') setConfig(prev => ({ ...prev, auto_scaler: { ...prev.auto_scaler, enabled: value === 'yes' } }));
+  };
+
+  const trafficLabel = config.workload.request_rate <= 5 ? 'Light' : config.workload.request_rate <= 15 ? 'Moderate' : 'Heavy';
+  const selectedPreset = presets.find(preset => preset.id === selectedPresetId);
+  const presetsByCategory = presets.reduce((groups, preset) => {
+    const category = preset.category || 'Other';
+    groups[category] = [...(groups[category] || []), preset];
+    return groups;
+  }, {});
 
   return (
     <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -173,12 +205,81 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
             style={{ width: '260px', height: '34px', fontSize: '12px' }}
           >
             <option value="">-- Choose Pre-Configured Scenario --</option>
-            {presets.map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
+            {Object.entries(presetsByCategory).map(([category, categoryPresets]) => (
+              <optgroup key={category} label={category}>
+                {categoryPresets.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </optgroup>
             ))}
           </select>
         </div>
       </div>
+
+      {selectedPreset && (
+        <div className="card" style={{ padding: '12px 16px', backgroundColor: 'rgba(37, 99, 235, 0.08)', display: 'flex', justifyContent: 'space-between', gap: '14px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ color: '#93c5fd', fontWeight: 700, fontSize: '13px' }}>{selectedPreset.name}</div>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '3px' }}>{selectedPreset.description}</div>
+          </div>
+          <div style={{ color: 'var(--text-secondary)', fontSize: '11px', whiteSpace: 'nowrap' }}>
+            Starts with <strong style={{ color: 'var(--text-primary)' }}>{selectedPreset.config.initial_nodes}</strong> server{selectedPreset.config.initial_nodes === 1 ? '' : 's'} · Autoscaling <strong style={{ color: selectedPreset.config.auto_scaler.enabled ? '#34d399' : '#94a3b8' }}>{selectedPreset.config.auto_scaler.enabled ? 'on' : 'off'}</strong>
+          </div>
+        </div>
+      )}
+
+      {/* Beginner/advanced choice */}
+      <div className="card" style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontWeight: 600, fontSize: '13px' }}>Choose how you want to set up the simulation</div>
+          <div style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '2px' }}>Quick Start uses everyday language; Advanced exposes every simulator setting.</div>
+        </div>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button type="button" className={`btn ${beginnerMode ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setBeginnerMode(true)}>
+            <Sparkles size={14} /> Quick Start
+          </button>
+          <button type="button" className={`btn ${!beginnerMode ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setBeginnerMode(false)}>
+            Advanced settings
+          </button>
+        </div>
+      </div>
+
+      {beginnerMode && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+          <div className="card">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+              <Sparkles size={17} color="#60a5fa" />
+              <div><div style={{ fontWeight: 700 }}>Set up your cloud in three choices</div><div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>You can fine-tune every option later in Advanced settings.</div></div>
+            </div>
+            <div style={{ display: 'grid', gap: '14px' }}>
+              <label>
+                <span style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '5px' }}>1. How many servers should we start with?</span>
+                <input type="number" min="1" max="20" value={config.initial_nodes} onChange={(e) => updateQuickConfig('nodes', e.target.value)} />
+                <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Choose any number from 1 to 20. Start smaller to make autoscaling easier to observe.</span>
+              </label>
+              <label>
+                <span style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '5px' }}>2. How busy will the application be?</span>
+                <select value={config.workload.request_rate} onChange={(e) => updateQuickConfig('traffic', e.target.value)}>
+                  <option value="3">Light — about 3 requests each second</option><option value="10">Moderate — about 10 requests each second</option><option value="25">Heavy — about 25 requests each second</option><option value="50">Very heavy — about 50 requests each second</option>
+                </select>
+              </label>
+              <label>
+                <span style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '5px' }}>3. Should the system add servers automatically when busy?</span>
+                <select value={config.auto_scaler.enabled ? 'yes' : 'no'} onChange={(e) => updateQuickConfig('autoscale', e.target.value)}>
+                  <option value="yes">Yes — add servers when the cluster is busy</option><option value="no">No — keep the starting number of servers</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          <div className="card" style={{ backgroundColor: 'rgba(37, 99, 235, 0.08)' }}>
+            <div style={{ fontWeight: 700, fontSize: '13px', color: '#93c5fd', marginBottom: '10px' }}>What will happen</div>
+            <p style={{ fontSize: '14px', lineHeight: 1.7, color: 'var(--text-primary)' }}>
+              Your app starts with <strong>{config.initial_nodes} servers</strong> and receives <strong>{trafficLabel.toLowerCase()} traffic</strong> (about {config.workload.request_rate} requests each second). {config.auto_scaler.enabled ? `If the servers stay more than ${config.auto_scaler.scale_up_threshold}% busy, the simulator can add servers up to ${config.auto_scaler.max_nodes}.` : 'The simulator will keep the same number of servers, even during busy periods.'}
+            </p>
+            <div style={{ marginTop: '16px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+              Requests are shared using <strong style={{ color: '#60a5fa' }}>{config.scheduler.replaceAll('_', ' ').toLowerCase()}</strong> scheduling.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Validation Alert */}
       {validationError && (
@@ -199,7 +300,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
       )}
 
       {/* Grid of Configuration Sections */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '20px' }}>
+      {!beginnerMode && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '20px' }}>
         
         {/* Section 1: Experiment Parameters */}
         <div className="card">
@@ -231,7 +332,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                 <input
                   type="number"
                   value={config.seed}
-                  onChange={(e) => setConfig({ ...config, seed: parseInt(e.target.value) || 0 })}
+                  onChange={(e) => setConfig({ ...config, seed: numberOrEmpty(e.target.value) })}
                   required
                 />
               </div>
@@ -245,7 +346,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                   max="300"
                   step="5"
                   value={config.duration}
-                  onChange={(e) => setConfig({ ...config, duration: parseFloat(e.target.value) || 60 })}
+                  onChange={(e) => setConfig({ ...config, duration: numberOrEmpty(e.target.value) })}
                   required
                 />
               </div>
@@ -261,7 +362,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                 max="2.0"
                 step="0.1"
                 value={config.time_step}
-                onChange={(e) => setConfig({ ...config, time_step: parseFloat(e.target.value) || 0.5 })}
+                onChange={(e) => setConfig({ ...config, time_step: numberOrEmpty(e.target.value) })}
               />
             </div>
           </div>
@@ -287,7 +388,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                   min="1"
                   max="16"
                   value={config.initial_nodes}
-                  onChange={(e) => setConfig({ ...config, initial_nodes: parseInt(e.target.value) || 1 })}
+                  onChange={(e) => setConfig({ ...config, initial_nodes: numberOrEmpty(e.target.value) })}
                   required
                 />
               </div>
@@ -300,7 +401,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                   min="5"
                   max="200"
                   value={config.node_queue_limit}
-                  onChange={(e) => setConfig({ ...config, node_queue_limit: parseInt(e.target.value) || 50 })}
+                  onChange={(e) => setConfig({ ...config, node_queue_limit: numberOrEmpty(e.target.value) })}
                 />
               </div>
             </div>
@@ -316,7 +417,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                   max="32"
                   step="1"
                   value={config.default_cpu_per_node}
-                  onChange={(e) => setConfig({ ...config, default_cpu_per_node: parseFloat(e.target.value) || 4 })}
+                  onChange={(e) => setConfig({ ...config, default_cpu_per_node: numberOrEmpty(e.target.value) })}
                 />
               </div>
               <div>
@@ -329,7 +430,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                   max="64"
                   step="1"
                   value={config.default_mem_per_node}
-                  onChange={(e) => setConfig({ ...config, default_mem_per_node: parseFloat(e.target.value) || 8 })}
+                  onChange={(e) => setConfig({ ...config, default_mem_per_node: numberOrEmpty(e.target.value) })}
                 />
               </div>
             </div>
@@ -425,7 +526,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                     value={config.auto_scaler.scale_up_threshold}
                     onChange={(e) => setConfig({
                       ...config,
-                      auto_scaler: { ...config.auto_scaler, scale_up_threshold: parseFloat(e.target.value) || 75 }
+                      auto_scaler: { ...config.auto_scaler, scale_up_threshold: numberOrEmpty(e.target.value) }
                     })}
                   />
                 </div>
@@ -440,7 +541,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                     value={config.auto_scaler.scale_down_threshold}
                     onChange={(e) => setConfig({
                       ...config,
-                      auto_scaler: { ...config.auto_scaler, scale_down_threshold: parseFloat(e.target.value) || 30 }
+                      auto_scaler: { ...config.auto_scaler, scale_down_threshold: numberOrEmpty(e.target.value) }
                     })}
                   />
                 </div>
@@ -458,7 +559,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                     value={config.auto_scaler.cooldown_period}
                     onChange={(e) => setConfig({
                       ...config,
-                      auto_scaler: { ...config.auto_scaler, cooldown_period: parseFloat(e.target.value) || 15 }
+                      auto_scaler: { ...config.auto_scaler, cooldown_period: numberOrEmpty(e.target.value) }
                     })}
                   />
                 </div>
@@ -473,7 +574,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                     value={config.auto_scaler.min_nodes}
                     onChange={(e) => setConfig({
                       ...config,
-                      auto_scaler: { ...config.auto_scaler, min_nodes: parseInt(e.target.value) || 1 }
+                      auto_scaler: { ...config.auto_scaler, min_nodes: numberOrEmpty(e.target.value) }
                     })}
                   />
                 </div>
@@ -488,7 +589,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                     value={config.auto_scaler.max_nodes}
                     onChange={(e) => setConfig({
                       ...config,
-                      auto_scaler: { ...config.auto_scaler, max_nodes: parseInt(e.target.value) || 8 }
+                      auto_scaler: { ...config.auto_scaler, max_nodes: numberOrEmpty(e.target.value) }
                     })}
                   />
                 </div>
@@ -524,7 +625,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                   value={config.workload.request_rate}
                   onChange={(e) => setConfig({
                     ...config,
-                    workload: { ...config.workload, request_rate: parseFloat(e.target.value) || 10 }
+                    workload: { ...config.workload, request_rate: numberOrEmpty(e.target.value) }
                   })}
                 />
               </div>
@@ -540,7 +641,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                     value={config.workload.min_task_duration}
                     onChange={(e) => setConfig({
                       ...config,
-                      workload: { ...config.workload, min_task_duration: parseFloat(e.target.value) || 1 }
+                      workload: { ...config.workload, min_task_duration: numberOrEmpty(e.target.value) }
                     })}
                   />
                   <input
@@ -550,7 +651,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                     value={config.workload.max_task_duration}
                     onChange={(e) => setConfig({
                       ...config,
-                      workload: { ...config.workload, max_task_duration: parseFloat(e.target.value) || 4 }
+                      workload: { ...config.workload, max_task_duration: numberOrEmpty(e.target.value) }
                     })}
                   />
                 </div>
@@ -569,7 +670,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                     value={config.workload.min_cpu}
                     onChange={(e) => setConfig({
                       ...config,
-                      workload: { ...config.workload, min_cpu: parseFloat(e.target.value) || 1 }
+                      workload: { ...config.workload, min_cpu: numberOrEmpty(e.target.value) }
                     })}
                   />
                   <input
@@ -578,7 +679,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                     value={config.workload.max_cpu}
                     onChange={(e) => setConfig({
                       ...config,
-                      workload: { ...config.workload, max_cpu: parseFloat(e.target.value) || 2 }
+                      workload: { ...config.workload, max_cpu: numberOrEmpty(e.target.value) }
                     })}
                   />
                 </div>
@@ -594,7 +695,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                     value={config.workload.min_mem}
                     onChange={(e) => setConfig({
                       ...config,
-                      workload: { ...config.workload, min_mem: parseFloat(e.target.value) || 1 }
+                      workload: { ...config.workload, min_mem: numberOrEmpty(e.target.value) }
                     })}
                   />
                   <input
@@ -603,7 +704,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                     value={config.workload.max_mem}
                     onChange={(e) => setConfig({
                       ...config,
-                      workload: { ...config.workload, max_mem: parseFloat(e.target.value) || 4 }
+                      workload: { ...config.workload, max_mem: numberOrEmpty(e.target.value) }
                     })}
                   />
                 </div>
@@ -623,7 +724,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                   value={config.workload.priority_high_ratio}
                   onChange={(e) => setConfig({
                     ...config,
-                    workload: { ...config.workload, priority_high_ratio: parseFloat(e.target.value) || 0 }
+                    workload: { ...config.workload, priority_high_ratio: numberOrEmpty(e.target.value) }
                   })}
                   title="P1 High Ratio"
                 />
@@ -635,7 +736,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                   value={config.workload.priority_med_ratio}
                   onChange={(e) => setConfig({
                     ...config,
-                    workload: { ...config.workload, priority_med_ratio: parseFloat(e.target.value) || 0 }
+                    workload: { ...config.workload, priority_med_ratio: numberOrEmpty(e.target.value) }
                   })}
                   title="P2 Normal Ratio"
                 />
@@ -647,7 +748,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                   value={config.workload.priority_low_ratio}
                   onChange={(e) => setConfig({
                     ...config,
-                    workload: { ...config.workload, priority_low_ratio: parseFloat(e.target.value) || 0 }
+                    workload: { ...config.workload, priority_low_ratio: numberOrEmpty(e.target.value) }
                   })}
                   title="P3 Low Ratio"
                 />
@@ -773,12 +874,12 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                 max="5000"
                 step="50"
                 value={config.sla_target_ms}
-                onChange={(e) => setConfig({ ...config, sla_target_ms: parseFloat(e.target.value) || 250 })}
+                onChange={(e) => setConfig({ ...config, sla_target_ms: numberOrEmpty(e.target.value) })}
               />
             </div>
           </div>
         </div>
-      </div>
+      </div>}
 
       {/* Action Submit Bar */}
       <div style={{
@@ -791,6 +892,9 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
         borderRadius: '6px',
         gap: '12px'
       }}>
+        <span style={{ marginRight: 'auto', fontSize: '11px', color: 'var(--text-muted)' }}>
+          Reset to Baseline replaces every setting, including server count and autoscaling limits.
+        </span>
         <button
           type="button"
           className="btn btn-secondary"

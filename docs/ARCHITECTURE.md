@@ -84,7 +84,7 @@ The Node backend communicates with the compiled C++ binary using a hybrid file-a
 5. **Cleanup**: Node reads the output file, stores the result in memory, and immediately deletes both temporary files.
 
 ### C. Live Observability: Server-Sent Events (SSE)
-When the user runs a simulation with live streaming enabled, the frontend opens an SSE connection:
+The API offers an optional SSE endpoint when a simulation is started with live streaming enabled. The current primary React experience is completed-run replay, which supports pause, seek and deterministic inspection. A future asynchronous job API should establish SSE before the engine begins so browser clients can consume every step.
 ```javascript
 const eventSource = new EventSource('/api/simulations/<id>/stream');
 ```
@@ -205,8 +205,8 @@ The backend implements defense-in-depth security principles:
      - `node_queue_limit`: $[1, 500]$ tasks.
 4. **Network Hardening**:
    - `helmet`: Sets secure HTTP headers (`X-Content-Type-Options`, `X-Frame-Options`, `Strict-Transport-Security`).
-   - `cors`: Configured for origin control.
-   - `express-rate-limit`: Limits requests to 120 per minute per IP.
+   - `cors`: Currently permissive for local development; restrict permitted origins before public deployment.
+   - `express-rate-limit`: Limits `/api` requests to 300 per 15 minutes per IP.
 
 ---
 

@@ -1,5 +1,11 @@
 # Test Suites & Quality Verification
 
+> See [docs/FEATURE_REFERENCE.md](../docs/FEATURE_REFERENCE.md) for the feature and architecture context behind these tests.
+
+## Current testing scope
+
+The tests verify simulation invariants and API behavior. They do not prove production capacity, public-API authorization, dependency security, or worker isolation; those require CI security checks and deployment-level tests.
+
 The test directory contains automated test suites that mathematically and logically verify the **Cloud Event Simulator**. Testing spans both native C++ discrete-event simulation mechanics and the Node.js orchestration layer.
 
 ---

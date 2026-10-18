@@ -1,5 +1,14 @@
 # Frontend Engineering Dashboard
 
+> Product concepts, screenshot tour, feature relevance and interview talking points are in [docs/FEATURE_REFERENCE.md](../docs/FEATURE_REFERENCE.md). This document is the frontend implementation companion.
+
+## Current UI features
+
+- **Quick Start** asks for server count, traffic level and autoscaling in beginner language; Advanced Settings exposes the full model.
+- **Replay Mode** plays a completed deterministic run, with an exact node pool for each recorded timestamp.
+- **Request-flow explainer** identifies the node from the actual routing trace, highlights it in the cluster grid, and labels historical scheduler loads with their routing time.
+- **Technical details** remain available without overwhelming first-time users.
+
 The user interface of the Cloud Event Simulator is a single-page application built with React 18, Vite, and a custom CSS design system. It serves as an infrastructure control console for cloud modeling, real-time observability, telemetry inspection, and policy benchmarking.
 
 ---

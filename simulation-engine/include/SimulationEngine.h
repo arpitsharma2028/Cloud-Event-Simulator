@@ -215,7 +215,27 @@ public:
                  << ",\"queued_tasks\":" << s.queued_tasks
                  << ",\"throughput\":" << s.throughput
                  << ",\"avg_latency_ms\":" << s.avg_latency_ms
-                 << ",\"cost_rate\":" << s.instantaneous_cost_rate << "}"
+                  << ",\"cost_rate\":" << s.instantaneous_cost_rate
+                  << ",\"nodes\":[";
+            for (size_t j = 0; j < s.nodes.size(); ++j) {
+                const auto& n = s.nodes[j];
+                json << "{\"id\":" << n.id
+                     << ",\"name\":" << json::quote(n.name)
+                     << ",\"cpu_capacity\":" << n.cpu_capacity
+                     << ",\"mem_capacity\":" << n.mem_capacity
+                     << ",\"cpu_used\":" << n.cpu_used
+                     << ",\"mem_used\":" << n.mem_used
+                     << ",\"cpu_util\":" << n.cpu_utilization
+                     << ",\"mem_util\":" << n.mem_utilization
+                     << ",\"status\":" << json::quote(n.status)
+                     << ",\"active_tasks\":" << n.active_tasks
+                     << ",\"queued_tasks\":" << n.queued_tasks
+                     << ",\"total_processed\":" << n.total_processed
+                     << ",\"total_failed\":" << n.total_failed
+                     << ",\"total_rejected\":" << n.total_rejected << "}"
+                     << (j + 1 < s.nodes.size() ? "," : "");
+            }
+            json << "]}"
                  << (i + 1 < snaps.size() ? ",\n" : "\n");
         }
         json << "  ],\n";

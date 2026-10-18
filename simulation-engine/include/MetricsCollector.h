@@ -10,6 +10,25 @@
 
 namespace cloudsim {
 
+// Exact per-node state at a moment in simulated time. This keeps replay views
+// truthful even after a later scale-down removes nodes from the final pool.
+struct NodeMetricSnapshot {
+    int id;
+    std::string name;
+    double cpu_capacity;
+    double mem_capacity;
+    double cpu_used;
+    double mem_used;
+    double cpu_utilization;
+    double mem_utilization;
+    std::string status;
+    size_t active_tasks;
+    size_t queued_tasks;
+    uint64_t total_processed;
+    uint64_t total_failed;
+    uint64_t total_rejected;
+};
+
 struct MetricSnapshot {
     double timestamp;
     double cpu_utilization;
@@ -22,6 +41,7 @@ struct MetricSnapshot {
     double throughput;       // req/sec in this window
     double avg_latency_ms;   // average latency of recent completions
     double instantaneous_cost_rate; // $/hour
+    std::vector<NodeMetricSnapshot> nodes;
 };
 
 struct SimulationSummary {
@@ -131,6 +151,25 @@ public:
         snap.healthy_nodes = pool.getOperationalNodeCount();
         snap.active_tasks = pool.getTotalActiveTasks();
         snap.queued_tasks = pool.getTotalQueuedTasks();
+
+        for (const auto& node : pool.getAllNodes()) {
+            snap.nodes.push_back({
+                node->id,
+                node->name,
+                node->cpu_capacity,
+                node->mem_capacity,
+                node->cpu_used,
+                node->mem_used,
+                node->getCpuUtilization(),
+                node->getMemUtilization(),
+                nodeStatusToString(node->status),
+                node->active_tasks.size(),
+                node->waiting_queue.size(),
+                node->total_tasks_processed,
+                node->total_tasks_failed,
+                node->total_tasks_rejected
+            });
+        }
 
         // Track peak queue length
         if (snap.queued_tasks > peak_queue_length_) {

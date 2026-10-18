@@ -1,5 +1,13 @@
 # Backend API & Orchestration Service
 
+> Read [the feature reference](../docs/FEATURE_REFERENCE.md) first for the product-level architecture, security boundaries, technology rationale, and interview answers. This document explains the backend implementation in detail.
+
+## Current implementation notes
+
+- Presets now include explicit scale-up/scale-down teaching runs; their definitions live in `src/services/presetsService.js`.
+- A simulation result includes event logs, aggregate snapshots and exact per-snapshot node state produced by the engine. The backend returns these unchanged for deterministic frontend replay.
+- The in-memory registry is appropriate for local learning only. It is not durable, multi-instance-safe, or user-isolated.
+
 The backend of the Cloud Event Simulator is a Node.js and Express service that orchestrates the native C++ simulation engine, validates client requests, provides real-time Server-Sent Events (SSE) streaming, and executes multi-policy experimentation benchmarks.
 
 ---
@@ -25,7 +33,7 @@ backend/
   │   │   ├── simulationService.js # Process controller, temp file IPC, SSE broadcast, experiments
   │   │   └── presetsService.js    # Academic preset scenarios catalog
   │   └── schemas/
-  │       └── simulationSchema.js  # Zod schema definitions with numerical boundary enforcement
+  │       └── validation.js        # Zod schema definitions with numerical boundary enforcement
   ├── temp/                    # Isolated directory for temporary IPC configuration and output JSON
   └── tests/
       └── api.test.js          # 7 automated integration tests for health, schema, execution, and compare
@@ -41,10 +49,10 @@ backend/
 - **HOW**:
   - `helmet()`: Applies standard security headers (`X-Content-Type-Options`, `X-Frame-Options`).
   - `cors()`: Restricts cross-origin requests.
-  - `express-rate-limit`: Limits requests to 120 per minute per IP address.
+  - `express-rate-limit`: Limits `/api` requests to 300 per 15 minutes per IP address.
   - `express.static`: Serves the compiled `frontend/dist` React production bundle.
 
-### B. Input Validation (`src/schemas/simulationSchema.js`)
+### B. Input Validation (`src/schemas/validation.js`)
 - **WHAT**: Strict schema validation using Zod.
 - **WHY**: Untrusted client inputs must never reach process execution or native code without rigorous boundary verification.
 - **HOW**:
@@ -127,9 +135,9 @@ backend/
 Trace of: `POST /api/simulations`
 
 1. **Request Received**: Client sends `POST /api/simulations` with a JSON configuration payload.
-2. **Rate Limit Checked**: `express-rate-limit` middleware verifies the IP has not exceeded 120 req/min.
+2. **Rate Limit Checked**: `express-rate-limit` middleware verifies the IP has not exceeded 300 requests in 15 minutes.
 3. **Route Invoked**: `src/routes/simulations.js` receives `req.body`.
-4. **Schema Validated**: `simulationSchema.parse(req.body)` validates types and numerical boundaries.
+4. **Schema Validated**: `SimulationSchema.safeParse(req.body)` validates types and numerical boundaries.
 5. **ID Generated**: A unique UUID is generated (e.g. `c7a8b9...`).
 6. **Config Written**: `fs.writeFileSync('temp/sim_config_c7a8b9.json', ...)` creates the isolated input file.
 7. **Process Spawned**: `child_process.spawn(ENGINE_PATH, ['--config', 'temp/sim_config_c7a8b9.json', '--output', 'temp/sim_output_c7a8b9.json'])`.
@@ -144,7 +152,7 @@ Trace of: `POST /api/simulations`
 ### Adding a New API Endpoint
 1. Open the appropriate route file (e.g. `src/routes/simulations.js` or `src/routes/compare.js`).
 2. Define the route handler with `try/catch` and pass errors to `next(err)`.
-3. If new input parameters are expected, update `src/schemas/simulationSchema.js` with Zod validation rules.
+3. If new input parameters are expected, update `src/schemas/validation.js` with Zod validation rules.
 4. Add an integration test in `backend/tests/api.test.js` to verify expected status codes and error responses.
 5. Run tests: `npm test`.
 

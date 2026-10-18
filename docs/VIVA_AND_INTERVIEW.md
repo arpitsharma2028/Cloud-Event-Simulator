@@ -37,7 +37,7 @@ Questions are categorized into five progressive levels of difficulty. For every 
 - **Short Answer**: A virtual node is a C++ class representing a compute server with defined vCPU core capacity, RAM capacity in GB, an active task map, and a bounded waiting queue.
 - **Detailed Explanation**: Rather than running a full operating system VM, `Node` tracks physical resource limits. When tasks arrive, the node checks if `cpu_used + task.cpu_req <= cpu_capacity`. If capacity is available, resources are allocated; if full, the task waits in a bounded deque; if the deque is full, backpressure rejects the request.
 - **Code Location**: `simulation-engine/include/Node.h` (Class `cloudsim::Node`).
-- **Follow-Up**: *What happens to a node's resources when a task finishes?* (Answer: `Node::deallocate()` removes the task ID and immediately restores the exact vCPU and RAM amounts.)
+- **Follow-Up**: *What happens to a node's resources when a task finishes?* (Answer: `Node::release()` removes the task and immediately restores the exact vCPU and RAM amounts.)
 
 ### Q1.4: What is an "event" in discrete-event simulation?
 - **Short Answer**: An event is a data structure representing an instantaneous state change in the cloud system at a specific simulation timestamp.
@@ -110,9 +110,9 @@ Questions are categorized into five progressive levels of difficulty. For every 
 - **Follow-Up**: *When would WebSockets be required in this project?* (Answer: If the user needed to pause, resume, or inject dynamic interactive chaos events into the running C++ engine mid-simulation.)
 
 ### Q3.4: How does the backend prevent Denial of Service (DoS) or runaway processes?
-- **Short Answer**: Through Zod schema boundary validation, rate limiting (120 req/min), and a 45-second wall-clock safety watchdog timer that terminates runaway C++ processes with `SIGKILL`.
+- **Short Answer**: Through Zod schema boundary validation, rate limiting (300 requests per 15 minutes), and a 45-second wall-clock safety watchdog timer that terminates runaway C++ processes with `SIGKILL`.
 - **Detailed Explanation**: If a user submits an invalid configuration (e.g. duration = -5 or initial_nodes = 99999), Zod rejects the request with HTTP 400 before the C++ process is spawned. If a simulation enters an infinite loop, the 45-second watchdog timer fires, kills the child process, cleans up temporary files, and returns an HTTP 500 error.
-- **Code Location**: `backend/src/schemas/simulationSchema.js` and `backend/src/services/simulationService.js`.
+- **Code Location**: `backend/src/schemas/validation.js` and `backend/src/services/simulationService.js`.
 - **Follow-Up**: *What prevents a malicious user from injecting shell commands like `& rm -rf /` in the node parameters?* (Answer: The process is spawned using `child_process.spawn()` with an array of arguments, not `child_process.exec()`. Shell interpretation is disabled.)
 
 ---

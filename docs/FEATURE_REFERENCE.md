@@ -135,13 +135,3 @@ For a public deployment, describe these gaps honestly:
 **Why a cooldown?** Without it, a threshold boundary can add and remove nodes repeatedly. Cooldown forces the system to wait before another scaling decision.
 
 **What is the most important limitation?** This is a scalar resource model: it does not model network topology, VM boot time, data locality, heterogeneous instance types, or real cloud billing rules.
-
-## Screenshots
-
-### Beginner-friendly workload setup
-
-![Quick Start workload configuration](images/workload-studio.png)
-
-### Replay console and scheduler explanation
-
-![Simulation replay console](images/replay-console.png)

@@ -1,12 +1,6 @@
 # Cloud Event Simulator
 
-> **Current feature and interview reference:** see [docs/FEATURE_REFERENCE.md](docs/FEATURE_REFERENCE.md). It is the concise source for every implemented feature, relevance, formulas, technology choices, limitations, screenshots, and viva answers.
-
-## Current visual tour
-
-| Beginner setup | Replay and scheduler explanation |
-| --- | --- |
-| ![Workload Studio](docs/images/workload-studio.png) | ![Simulation Console](docs/images/replay-console.png) |
+> **Current feature and interview reference:** see [docs/FEATURE_REFERENCE.md](docs/FEATURE_REFERENCE.md). It is the concise source for every implemented feature, relevance, formulas, technology choices, limitations, and viva answers.
 
 A deterministic cloud infrastructure behavior and discrete-event simulation platform built for academic evaluation, algorithm benchmarking, and software engineering interview defense.
 

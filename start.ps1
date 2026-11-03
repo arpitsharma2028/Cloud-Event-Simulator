@@ -83,14 +83,22 @@ if (-not (Test-Path $frontendModules)) {
     Write-Host "  -> Frontend dependencies are up to date." -ForegroundColor Green
 }
 
-if (-not (Test-Path $frontendDist)) {
+# Rebuild on startup: an existing dist directory may contain stale HTML or
+# be missing hashed assets after a clone or source update.
+if (-not $Dev) {
     Write-Host "  -> Building frontend production bundle..." -ForegroundColor Cyan
     Push-Location (Join-Path $rootDir "frontend")
-    npm run build
-    Pop-Location
+    try {
+        npm run build
+        if ($LASTEXITCODE -ne 0) {
+            throw "Frontend build failed (exit code $LASTEXITCODE). Server startup cancelled."
+        }
+    } finally {
+        Pop-Location
+    }
     Write-Host "  -> Frontend bundle built successfully." -ForegroundColor Green
 } else {
-    Write-Host "  -> Frontend production bundle ready." -ForegroundColor Green
+    Write-Host "  -> Development mode uses the Vite server; production build skipped." -ForegroundColor Green
 }
 
 # 5. Launch

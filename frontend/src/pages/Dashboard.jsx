@@ -16,9 +16,10 @@ export default function Dashboard({
 
   const completedSims = simulations.filter(s => s.status === 'COMPLETED');
   const totalCompletedRequests = completedSims.reduce((sum, s) => sum + (s.summary ? s.summary.total_requests_completed : 0), 0);
-  const avgSla = completedSims.length > 0
-    ? (completedSims.reduce((sum, s) => sum + (s.summary ? s.summary.sla_compliance_rate_pct : 0), 0) / completedSims.length).toFixed(1)
-    : '100.0';
+  const evaluatedSims = completedSims.filter(s => s.summary?.total_requests_completed > 0);
+  const avgSla = evaluatedSims.length
+    ? `${(evaluatedSims.reduce((sum, s) => sum + s.summary.sla_compliance_rate_pct, 0) / evaluatedSims.length).toFixed(1)}%`
+    : 'N/A';
 
   const toggleCompareSelect = (id) => {
     setSelectedForCompare(prev => {
@@ -90,7 +91,7 @@ export default function Dashboard({
         />
         <MetricCard
           title="Average SLA Compliance"
-          value={`${avgSla}%`}
+          value={avgSla}
           subtitle="Latency under target threshold"
           icon={ShieldCheck}
           color="green"
@@ -104,15 +105,15 @@ export default function Dashboard({
         />
       </div>
 
-      {/* Preset Academic Scenarios Quick Launch */}
+      {/* Workload presets quick launch */}
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
           <div>
             <h2 style={{ fontSize: '14px', fontWeight: 600, color: '#f8fafc' }}>
-              Standard Academic Scenarios & Workload Presets
+              Scenarios & Workload Presets
             </h2>
             <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              Pre-configured scenarios designed for viva evaluation and cloud behavior demonstration.
+              Explore traffic surges, autoscaling, scheduling, and failure recovery with ready-to-run workloads.
             </p>
           </div>
         </div>
@@ -209,7 +210,7 @@ export default function Dashboard({
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           {simulations.length === 0 ? (
             <div style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)' }}>
-              No simulations have been run yet. Select an academic preset above or create a new workload in the Workload Studio.
+              No simulations have been run yet. Select a preset above or create a new workload in the Workload Studio.
             </div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
@@ -277,7 +278,7 @@ export default function Dashboard({
                               fontWeight: 600,
                               color: sim.summary.sla_compliance_rate_pct >= 95 ? '#10b981' : sim.summary.sla_compliance_rate_pct >= 85 ? '#f59e0b' : '#ef4444'
                             }}>
-                              {sim.summary.sla_compliance_rate_pct.toFixed(1)}%
+                              {sim.summary.total_requests_completed ? `${sim.summary.sla_compliance_rate_pct.toFixed(1)}%` : 'N/A'}
                             </span>
                           ) : '-'}
                         </td>

@@ -4,7 +4,7 @@ import { runPolicyExperiment } from '../services/api';
 import {
   GitCompare, Award, Play, CheckCircle, AlertTriangle,
   Activity, DollarSign, Clock, Layers, Sliders, ExternalLink,
-  ShieldCheck, BarChart2, RefreshCw, Info
+  ShieldCheck, BarChart2, RefreshCw, Info, X, HelpCircle
 } from 'lucide-react';
 
 export default function ComparisonStudio({
@@ -16,21 +16,23 @@ export default function ComparisonStudio({
 }) {
   // Mode: 'EXPERIMENT' (workbench running fixed workload on multiple policies) or 'SAVED' (compare previous runs)
   const [activeMode, setActiveMode] = useState('EXPERIMENT');
+  const activeSubTab = activeMode === 'EXPERIMENT' ? 'benchmark' : 'saved';
   const [experimentType, setExperimentType] = useState('SCHEDULING'); // 'SCHEDULING' | 'LOAD_BALANCING' | 'AUTOSCALING'
   const [selectedPresetId, setSelectedPresetId] = useState(presets[0]?.id || 'full_lifecycle');
   const [customSeed, setCustomSeed] = useState(42);
   const [isRunning, setIsRunning] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
+  const [showGradeModal, setShowGradeModal] = useState(false);
 
   // For SAVED mode multi-selection
   const [selectedSimIds, setSelectedSimIds] = useState(
     comparisonData ? comparisonData.matrix.map(m => m.id) : []
   );
 
-  // Active dataset for comparison: either prop comparisonData or state experimentResult
+  // Active dataset for comparison: strict separation between benchmark and saved tabs to prevent state leakage
   const [experimentResult, setExperimentResult] = useState(null);
 
-  const activeData = experimentResult || comparisonData;
+  const activeData = activeSubTab === 'benchmark' ? experimentResult : comparisonData;
 
   const toggleSelect = (id) => {
     setSelectedSimIds(prev =>
@@ -325,18 +327,28 @@ export default function ComparisonStudio({
         </div>
       )}
 
-      {/* RESULTS DISPLAY: Only shown when activeData exists */}
-      {matrix.length >= 2 && (
+      {/* RESULTS DISPLAY: Only rendered when the current active tab has a valid completed dataset */}
+      {((activeSubTab === 'benchmark' && experimentResult) || (activeSubTab === 'saved' && comparisonData)) && matrix.length >= 2 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
           
           {/* 1. Policy Ranking Leaderboard */}
           {ranking.length > 0 && (
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                <Award size={16} color="#3b82f6" />
-                <h2 style={{ fontSize: '13px', fontWeight: 600, color: '#f8fafc', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Policy Performance Ranking & Multi-Objective Evaluation
-                </h2>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Award size={16} color="#3b82f6" />
+                  <h2 style={{ fontSize: '13px', fontWeight: 600, color: '#f8fafc', textTransform: 'uppercase', letterSpacing: '0.04em', margin: 0 }}>
+                    Policy performance ranking & multi-objective evaluation
+                  </h2>
+                </div>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setShowGradeModal(true)}
+                  style={{ fontSize: '11px', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '5px' }}
+                >
+                  <HelpCircle size={13} color="#60a5fa" />
+                  How grade is calculated
+                </button>
               </div>
 
               <div style={{
@@ -388,8 +400,11 @@ export default function ComparisonStudio({
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '10px', fontSize: '11px' }}>
                       <div>
                         <span style={{ color: 'var(--text-muted)' }}>SLA Compliance:</span>
-                        <div className="font-mono" style={{ fontWeight: 600, color: item.slaCompliancePct >= 95 ? '#10b981' : '#f59e0b' }}>
-                          {item.slaCompliancePct.toFixed(1)}%
+                        <div className="font-mono" style={{
+                          fontWeight: 600,
+                          color: item.slaCompliancePct >= 95 ? '#10b981' : item.slaCompliancePct >= 80 ? '#f59e0b' : '#ef4444'
+                        }}>
+                          {item.completedRequests ? `${item.slaCompliancePct.toFixed(1)}%` : 'N/A'}
                         </div>
                       </div>
                       <div>
@@ -437,13 +452,13 @@ export default function ComparisonStudio({
             </div>
           )}
 
-          {/* 2. Viva Defense / Academic Explanations */}
+          {/* 2. Policy insights */}
           {insights.length > 0 && (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
                 <ShieldCheck size={16} color="#10b981" />
                 <h2 style={{ fontSize: '13px', fontWeight: 600, color: '#f8fafc', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Academic Viva Defense & Architectural Explainability
+                  Policy insights & trade-offs
                 </h2>
               </div>
 
@@ -476,7 +491,7 @@ export default function ComparisonStudio({
             </div>
           )}
 
-          {/* 3. Official Side-by-Side Metric Comparison Table (Section 3 Format) */}
+          {/* 3. Official Side-by-Side Metric Comparison Table */}
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
             <div style={{
               padding: '12px 16px',
@@ -493,7 +508,7 @@ export default function ComparisonStudio({
                 textTransform: 'uppercase',
                 letterSpacing: '0.04em'
               }}>
-                Side-by-Side Metric Comparison Table (Actual Simulation State)
+                Side-by-side metric comparison table (actual simulation state)
               </span>
               <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                 ★ Best value highlighted per metric row
@@ -648,7 +663,7 @@ export default function ComparisonStudio({
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '2px' }}>
                           <span style={{ color: isBest ? '#34d399' : '#cbd5e1', fontWeight: isBest ? 600 : 400 }}>{m.name}</span>
                           <span className="font-mono" style={{ color: isBest ? '#34d399' : 'var(--text-primary)', fontWeight: 600 }}>
-                            {m.slaCompliancePct.toFixed(1)}%
+                            {m.completedRequests ? `${m.slaCompliancePct.toFixed(1)}%` : 'N/A'}
                           </span>
                         </div>
                         <div style={{ width: '100%', height: '8px', backgroundColor: '#1e293b', borderRadius: '2px', overflow: 'hidden' }}>
@@ -700,6 +715,108 @@ export default function ComparisonStudio({
             </div>
           </div>
 
+        </div>
+      )}
+
+      {/* How Grade is Calculated Modal */}
+      {showGradeModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.75)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          padding: '20px'
+        }}>
+          <div className="card" style={{
+            maxWidth: '620px',
+            width: '100%',
+            backgroundColor: '#0c1322',
+            border: '1px solid #3b82f6',
+            boxShadow: '0 0 30px rgba(37, 99, 235, 0.25)',
+            maxHeight: '85vh',
+            overflowY: 'auto',
+            padding: '24px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Award size={18} color="#3b82f6" />
+                <h3 style={{ fontSize: '15px', fontWeight: 700, color: '#f8fafc', margin: 0 }}>
+                  How Grade & Performance Ranking Are Calculated
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowGradeModal(false)}
+                style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.6, display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <p>
+                Each policy variant is benchmarked under identical deterministic workload conditions and evaluated across four weighted dimensions, penalized by task fulfillment:
+              </p>
+
+              <div style={{ backgroundColor: '#070b14', padding: '12px 14px', borderRadius: '4px', border: '1px solid var(--border-subtle)' }}>
+                <div style={{ fontWeight: 700, color: '#f8fafc', marginBottom: '8px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Multi-Objective Metric Weights (0–100 Scale)
+                </div>
+                <ul style={{ margin: 0, paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <li><strong style={{ color: '#10b981' }}>SLA Compliance (35% weight):</strong> Percentage of evaluated requests completed within the configured SLA latency target. Horizon-stranded tasks exceeding the SLA limit are counted as violations.</li>
+                  <li><strong style={{ color: '#60a5fa' }}>Average Latency (25% weight):</strong> Response time (queue wait + execution) scaled inversely relative to the best and worst in the benchmark cohort.</li>
+                  <li><strong style={{ color: '#38bdf8' }}>Throughput (20% weight):</strong> Effective requests delivered per second over the simulation duration.</li>
+                  <li><strong style={{ color: '#a78bfa' }}>Economic Efficiency (20% weight):</strong> Cost per 1,000 successfully completed requests.</li>
+                </ul>
+              </div>
+
+              <div style={{ backgroundColor: 'rgba(245, 158, 11, 0.08)', padding: '12px 14px', borderRadius: '4px', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
+                <strong style={{ color: '#fbbf24', display: 'block', marginBottom: '4px' }}>Anti-Starvation Fulfillment Penalty:</strong>
+                <p style={{ margin: 0, fontSize: '11px', color: '#cbd5e1' }}>
+                  The composite score is multiplied by <code>√(Completed / Submitted)</code>. Policies (such as Priority-based) that leave low-priority tasks stranded in queues at horizon are penalized, preventing algorithms from gaming average latency by abandoning difficult workloads.
+                </p>
+              </div>
+
+              <div>
+                <div style={{ fontWeight: 700, color: '#f8fafc', marginBottom: '6px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Letter Grade Scale
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', textAlign: 'center', fontSize: '11px' }}>
+                  <div style={{ padding: '6px', backgroundColor: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '4px' }}>
+                    <div style={{ fontWeight: 700, color: '#34d399' }}>Grade A / A+</div>
+                    <div style={{ color: 'var(--text-muted)' }}>Score ≥ 85</div>
+                  </div>
+                  <div style={{ padding: '6px', backgroundColor: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '4px' }}>
+                    <div style={{ fontWeight: 700, color: '#60a5fa' }}>Grade B</div>
+                    <div style={{ color: 'var(--text-muted)' }}>Score 70–84</div>
+                  </div>
+                  <div style={{ padding: '6px', backgroundColor: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: '4px' }}>
+                    <div style={{ fontWeight: 700, color: '#fbbf24' }}>Grade C</div>
+                    <div style={{ color: 'var(--text-muted)' }}>Score 50–69</div>
+                  </div>
+                  <div style={{ padding: '6px', backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '4px' }}>
+                    <div style={{ fontWeight: 700, color: '#f87171' }}>Grade D / F</div>
+                    <div style={{ color: 'var(--text-muted)' }}>Score &lt; 50</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                className="btn btn-primary"
+                onClick={() => setShowGradeModal(false)}
+                style={{ padding: '6px 16px' }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

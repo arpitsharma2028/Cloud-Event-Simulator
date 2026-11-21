@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import StatusBadge from './StatusBadge';
 import { Filter, Search } from 'lucide-react';
 
-export default function EventTable({ events = [] }) {
+export default function EventTable({ events = [], maxHeight = '420px' }) {
   const [filterType, setFilterType] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
@@ -86,7 +86,7 @@ export default function EventTable({ events = [] }) {
       </div>
 
       {/* Table */}
-      <div style={{ overflowX: 'auto', maxHeight: '420px', overflowY: 'auto' }}>
+      <div style={{ overflowX: 'auto', maxHeight: maxHeight, overflowY: 'auto' }}>
         <table className="data-table">
           <thead>
             <tr>

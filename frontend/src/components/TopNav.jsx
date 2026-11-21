@@ -89,21 +89,23 @@ export default function TopNav({ activeTab, onSelectTab, activeSimulationCount =
           <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
             <button
               onClick={() => setShowReferenceModal(true)}
+              aria-expanded={showReferenceModal}
+              aria-haspopup="dialog"
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
                 padding: '6px 10px',
-                backgroundColor: '#141e33',
-                border: '1px solid var(--border-subtle)',
+                backgroundColor: showReferenceModal ? '#1e293b' : 'transparent',
+                border: showReferenceModal ? '1px solid #334155' : '1px solid transparent',
                 borderRadius: '4px',
                 fontSize: '12px',
-                color: '#93c5fd',
+                color: showReferenceModal ? '#ffffff' : '#94a3b8',
                 cursor: 'pointer'
               }}
               title="View mathematical formulas and simulation assumptions"
             >
-              <BookOpen size={13} color="#60a5fa" />
+              <BookOpen size={13} color={showReferenceModal ? '#3b82f6' : '#64748b'} />
               <span>Assumptions & Metrics</span>
             </button>
 

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Terminal, Copy, Check } from 'lucide-react';
 
-export default function DecisionLog({ traces = [] }) {
+export default function DecisionLog({ traces = [], maxHeight = '360px' }) {
   const [filter, setFilter] = useState('');
   const [copied, setCopied] = useState(false);
 
@@ -58,7 +58,7 @@ export default function DecisionLog({ traces = [] }) {
       <div style={{
         backgroundColor: '#070b14',
         padding: '14px 16px',
-        maxHeight: '360px',
+        maxHeight: maxHeight,
         overflowY: 'auto',
         fontFamily: 'JetBrains Mono, monospace',
         fontSize: '11px',

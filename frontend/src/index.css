@@ -281,3 +281,18 @@ textarea:focus {
   .flow-arrow { transform: rotate(90deg); justify-self: center; }
   .flow-step { min-height: 82px; }
 }
+
+/* Simulation Console Bento Grid */
+.console-bento-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 58%) minmax(0, 42%);
+  gap: 18px;
+  align-items: start;
+}
+
+@media (max-width: 1200px) {
+  .console-bento-grid {
+    grid-template-columns: 1fr;
+  }
+}
+

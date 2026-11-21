@@ -76,7 +76,7 @@ export default function ModelReferenceModal({ isOpen, onClose }) {
             <ul style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.6, paddingLeft: '18px' }}>
               <li><strong>Cloud Behavior Model:</strong> This is an algorithmic cloud behavior simulator. It models discrete-event queue dynamics and scheduling policies; it does NOT provision live AWS/Azure/GCP infrastructure.</li>
               <li><strong>Virtual Node Resources:</strong> Each node represents a virtual compute instance with fixed vCPU capacity and Memory (GB) capacity. Resources are allocated exclusively to active workloads and strictly restored upon task completion or node eviction.</li>
-              <li><strong>Bounded Node Queuing:</strong> Each node has a finite waiting queue. If a node is at full capacity and its queue limit is reached, incoming requests are rejected with backpressure (HTTP 429 / Queue Saturated).</li>
+              <li><strong>Bounded Node Queuing:</strong> Each node has a finite waiting queue. Overflow and tasks larger than any node are recorded as simulated rejections. This is separate from API rate limiting.</li>
               <li><strong>Determinism:</strong> All stochastic arrivals, durations, and sizes are driven by a Mersenne Twister (<code>std::mt19937</code>) PRNG. Identical seeds guarantee 100% byte-for-byte reproducible outcomes across test runs.</li>
             </ul>
           </div>
@@ -159,7 +159,7 @@ export default function ModelReferenceModal({ isOpen, onClose }) {
             </div>
             <ul style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.6, paddingLeft: '18px' }}>
               <li><strong>Horizontal Scale-Up:</strong> Evaluated periodically. If cluster composite load exceeds <code>scale_up_threshold</code> and cooldown has expired, the engine spins up new virtual nodes up to <code>max_nodes</code>.</li>
-              <li><strong>Horizontal Scale-Down:</strong> If cluster load drops below <code>scale_down_threshold</code>, the lowest-loaded healthy nodes are safely drained and removed down to <code>min_nodes</code>.</li>
+              <li><strong>Horizontal Scale-Down:</strong> Below <code>scale_down_threshold</code>, idle nodes with no running or queued work can be removed down to <code>min_nodes</code>. Busy nodes stay until their work finishes; tasks are not killed to scale down.</li>
               <li><strong>Cooldown Hysteresis:</strong> Enforces a deadband window (e.g. 10-15s) following any scaling operation to prevent thrashing oscillation.</li>
               <li><strong>Node Failure & Eviction:</strong> When a node suffers catastrophic failure, its status transitions to <code>FAILED</code>. All running and queued workloads on that node are evicted and marked <code>FAILED</code>. Schedulers immediately bypass offline nodes.</li>
               <li><strong>Automated Recovery:</strong> On recovery timestamp, the node reboots, resets resource pools to clean zero load, and re-registers into the healthy scheduling cluster.</li>

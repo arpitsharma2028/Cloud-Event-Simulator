@@ -8,6 +8,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
   const [selectedPresetId, setSelectedPresetId] = useState('');
   const [validationError, setValidationError] = useState(null);
   const [beginnerMode, setBeginnerMode] = useState(true);
+  const [weightsText, setWeightsText] = useState('');
 
   // Form State
   const [config, setConfig] = useState({
@@ -22,7 +23,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
     node_queue_limit: 50,
 
     scheduler: "ROUND_ROBIN",
-    load_balancer: "ROUND_ROBIN",
+    load_balancer: "NONE",
 
     auto_scaler: {
       enabled: true,
@@ -67,6 +68,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
         name: `${preset.name} (${new Date().toLocaleTimeString()})`
       });
       setValidationError(null);
+      setWeightsText((preset.config.node_weights || []).join(', '));
     }
   };
 
@@ -87,7 +89,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
   const handleUpdateSpike = (idx, field, val) => {
     setConfig(prev => {
       const updated = [...prev.spikes];
-      updated[idx] = { ...updated[idx], [field]: Number(val) };
+      updated[idx] = { ...updated[idx], [field]: numberOrEmpty(val) };
       return { ...prev, spikes: updated };
     });
   };
@@ -109,7 +111,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
   const handleUpdateFailure = (idx, field, val) => {
     setConfig(prev => {
       const updated = [...prev.failures];
-      updated[idx] = { ...updated[idx], [field]: Number(val) };
+      updated[idx] = { ...updated[idx], [field]: numberOrEmpty(val) };
       return { ...prev, failures: updated };
     });
   };
@@ -142,24 +144,46 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
       return;
     }
 
-    onRunSimulation(config);
+    const node_weights = weightsText.trim() ? weightsText.split(',').map(v => Number(v.trim())) : [];
+    if (node_weights.length && (node_weights.length !== config.initial_nodes || node_weights.some(v => !Number.isFinite(v) || v < 0.1 || v > 100))) {
+      setValidationError(`Weights mismatch: Cluster is configured with ${config.initial_nodes} servers, but ${node_weights.length} weights were specified. Enter exactly one weight (0.1–100) per starting server, or leave the field blank for equal routing.`);
+      return;
+    }
+    if (config.auto_scaler.enabled && (config.initial_nodes < config.auto_scaler.min_nodes || config.initial_nodes > config.auto_scaler.max_nodes)) {
+      setValidationError('Initial nodes must be within the autoscaling minimum and maximum.');
+      return;
+    }
+    onRunSimulation({ ...config, node_weights });
   };
 
   const SCHEDULER_DESCRIPTIONS = {
     ROUND_ROBIN: "Cycles systematically through all operational nodes regardless of existing load.",
     LEAST_LOADED: "Evaluates composite CPU and Memory utilization on each healthy node and assigns to the node with lowest active load.",
-    PRIORITY_BASED: "Evaluates workload priority: assigns high-priority requests to immediate idle capacity, while lower priorities are queued or deferred.",
+    PRIORITY_BASED: "Places work on available capacity; waiting tasks are ordered by priority (FIFO within each priority). Running tasks are not interrupted.",
     FIRST_FIT: "Sequentially scans cluster nodes and places task on the first node with sufficient unallocated CPU and RAM."
   };
 
   const LB_DESCRIPTIONS = {
+    NONE: 'Use the scheduler’s choice directly. Best for comparing scheduling algorithms.',
     ROUND_ROBIN: "Distributes incoming network connections in alternating circular sequence.",
     LEAST_CONNECTIONS: "Directs traffic to the virtual node with the fewest active concurrent requests.",
     WEIGHTED: "Routes requests proportional to assigned node compute capacity weights."
   };
 
   const updateQuickConfig = (path, value) => {
-    if (path === 'nodes') setConfig(prev => ({ ...prev, initial_nodes: Number(value) }));
+    if (path === 'nodes') {
+      const num = numberOrEmpty(value);
+      setConfig(prev => ({
+        ...prev,
+        initial_nodes: num,
+        auto_scaler: {
+          ...prev.auto_scaler,
+          min_nodes: Math.min(prev.auto_scaler.min_nodes, Number(value) || 1),
+          max_nodes: Math.max(prev.auto_scaler.max_nodes, Number(value) || 1)
+        }
+      }));
+      setWeightsText(''); // Reset weights when server count is modified from beginner mode to avoid hidden validation error
+    }
     if (path === 'traffic') setConfig(prev => ({ ...prev, workload: { ...prev.workload, request_rate: Number(value) } }));
     if (path === 'autoscale') setConfig(prev => ({ ...prev, auto_scaler: { ...prev.auto_scaler, enabled: value === 'yes' } }));
   };
@@ -272,7 +296,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
           <div className="card" style={{ backgroundColor: 'rgba(37, 99, 235, 0.08)' }}>
             <div style={{ fontWeight: 700, fontSize: '13px', color: '#93c5fd', marginBottom: '10px' }}>What will happen</div>
             <p style={{ fontSize: '14px', lineHeight: 1.7, color: 'var(--text-primary)' }}>
-              Your app starts with <strong>{config.initial_nodes} servers</strong> and receives <strong>{trafficLabel.toLowerCase()} traffic</strong> (about {config.workload.request_rate} requests each second). {config.auto_scaler.enabled ? `If the servers stay more than ${config.auto_scaler.scale_up_threshold}% busy, the simulator can add servers up to ${config.auto_scaler.max_nodes}.` : 'The simulator will keep the same number of servers, even during busy periods.'}
+              Your app starts with <strong>{config.initial_nodes} servers</strong> and receives <strong>{trafficLabel.toLowerCase()} traffic</strong> (about {config.workload.request_rate} requests each second). {config.auto_scaler.enabled ? `Above ${config.auto_scaler.scale_up_threshold}% composite CPU/RAM use, capacity can grow to ${config.auto_scaler.max_nodes}. Below ${config.auto_scaler.scale_down_threshold}%, idle servers can be removed down to ${config.auto_scaler.min_nodes}, subject to cooldown.` : 'The simulator will keep the same number of servers, even during busy periods.'}
             </p>
             <div style={{ marginTop: '16px', fontSize: '12px', color: 'var(--text-secondary)' }}>
               Requests are shared using <strong style={{ color: '#60a5fa' }}>{config.scheduler.replaceAll('_', ' ').toLowerCase()}</strong> scheduling.
@@ -344,7 +368,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                   type="number"
                   min="5"
                   max="300"
-                  step="5"
+                  step="any"
                   value={config.duration}
                   onChange={(e) => setConfig({ ...config, duration: numberOrEmpty(e.target.value) })}
                   required
@@ -359,8 +383,8 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
               <input
                 type="number"
                 min="0.1"
-                max="2.0"
-                step="0.1"
+                max="5.0"
+                step="any"
                 value={config.time_step}
                 onChange={(e) => setConfig({ ...config, time_step: numberOrEmpty(e.target.value) })}
               />
@@ -386,7 +410,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                 <input
                   type="number"
                   min="1"
-                  max="16"
+                  max="20"
                   value={config.initial_nodes}
                   onChange={(e) => setConfig({ ...config, initial_nodes: numberOrEmpty(e.target.value) })}
                   required
@@ -398,8 +422,8 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                 </label>
                 <input
                   type="number"
-                  min="5"
-                  max="200"
+                  min="1"
+                  max="500"
                   value={config.node_queue_limit}
                   onChange={(e) => setConfig({ ...config, node_queue_limit: numberOrEmpty(e.target.value) })}
                 />
@@ -414,8 +438,8 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                 <input
                   type="number"
                   min="1"
-                  max="32"
-                  step="1"
+                  max="64"
+                  step="any"
                   value={config.default_cpu_per_node}
                   onChange={(e) => setConfig({ ...config, default_cpu_per_node: numberOrEmpty(e.target.value) })}
                 />
@@ -427,8 +451,8 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                 <input
                   type="number"
                   min="1"
-                  max="64"
-                  step="1"
+                  max="256"
+                  step="any"
                   value={config.default_mem_per_node}
                   onChange={(e) => setConfig({ ...config, default_mem_per_node: numberOrEmpty(e.target.value) })}
                 />
@@ -479,6 +503,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                 value={config.load_balancer}
                 onChange={(e) => setConfig({ ...config, load_balancer: e.target.value })}
               >
+                <option value="NONE">Scheduler only (no extra balancing)</option>
                 <option value="ROUND_ROBIN">Round Robin</option>
                 <option value="LEAST_CONNECTIONS">Least Connections</option>
                 <option value="WEIGHTED">Weighted</option>
@@ -486,6 +511,11 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
               <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
                 {LB_DESCRIPTIONS[config.load_balancer]}
               </div>
+              {config.load_balancer === 'WEIGHTED' && <label style={{ display: 'block', marginTop: '12px', fontSize: '12px' }}>
+                Node routing weights (one per initial server)
+                <input type="text" placeholder="Example for 3 servers: 1, 2, 4" value={weightsText} onChange={e => setWeightsText(e.target.value)} />
+                <small>Blank means equal weights. Weights affect routing share, not CPU/RAM capacity. New autoscaled servers have weight 1.</small>
+              </label>}
             </div>
           </div>
         </div>
@@ -521,8 +551,8 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                   </label>
                   <input
                     type="number"
-                    min="40"
-                    max="95"
+                    min="10"
+                    max="100"
                     value={config.auto_scaler.scale_up_threshold}
                     onChange={(e) => setConfig({
                       ...config,
@@ -536,8 +566,8 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                   </label>
                   <input
                     type="number"
-                    min="10"
-                    max="60"
+                    min="5"
+                    max="90"
                     value={config.auto_scaler.scale_down_threshold}
                     onChange={(e) => setConfig({
                       ...config,
@@ -554,7 +584,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                   </label>
                   <input
                     type="number"
-                    min="5"
+                    min="1"
                     max="60"
                     value={config.auto_scaler.cooldown_period}
                     onChange={(e) => setConfig({
@@ -570,7 +600,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                   <input
                     type="number"
                     min="1"
-                    max="5"
+                    max="20"
                     value={config.auto_scaler.min_nodes}
                     onChange={(e) => setConfig({
                       ...config,
@@ -584,8 +614,8 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                   </label>
                   <input
                     type="number"
-                    min="2"
-                    max="16"
+                    min="1"
+                    max="20"
                     value={config.auto_scaler.max_nodes}
                     onChange={(e) => setConfig({
                       ...config,
@@ -619,9 +649,9 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                 </label>
                 <input
                   type="number"
-                  min="0.5"
-                  max="50"
-                  step="0.5"
+                  min="0.1"
+                  max="100"
+                  step="any"
                   value={config.workload.request_rate}
                   onChange={(e) => setConfig({
                     ...config,
@@ -637,7 +667,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                   <input
                     type="number"
                     placeholder="Min"
-                    step="0.5"
+                    step="any"
                     value={config.workload.min_task_duration}
                     onChange={(e) => setConfig({
                       ...config,
@@ -647,7 +677,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                   <input
                     type="number"
                     placeholder="Max"
-                    step="0.5"
+                    step="any"
                     value={config.workload.max_task_duration}
                     onChange={(e) => setConfig({
                       ...config,
@@ -666,7 +696,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                 <div style={{ display: 'flex', gap: '4px' }}>
                   <input
                     type="number"
-                    step="0.5"
+                    step="any"
                     value={config.workload.min_cpu}
                     onChange={(e) => setConfig({
                       ...config,
@@ -675,7 +705,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                   />
                   <input
                     type="number"
-                    step="0.5"
+                    step="any"
                     value={config.workload.max_cpu}
                     onChange={(e) => setConfig({
                       ...config,
@@ -691,7 +721,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                 <div style={{ display: 'flex', gap: '4px' }}>
                   <input
                     type="number"
-                    step="0.5"
+                    step="any"
                     value={config.workload.min_mem}
                     onChange={(e) => setConfig({
                       ...config,
@@ -700,7 +730,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                   />
                   <input
                     type="number"
-                    step="0.5"
+                    step="any"
                     value={config.workload.max_mem}
                     onChange={(e) => setConfig({
                       ...config,
@@ -718,7 +748,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
               <div style={{ display: 'flex', gap: '6px' }}>
                 <input
                   type="number"
-                  step="0.05"
+                  step="any"
                   min="0"
                   max="1"
                   value={config.workload.priority_high_ratio}
@@ -730,7 +760,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                 />
                 <input
                   type="number"
-                  step="0.05"
+                  step="any"
                   min="0"
                   max="1"
                   value={config.workload.priority_med_ratio}
@@ -742,7 +772,7 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
                 />
                 <input
                   type="number"
-                  step="0.05"
+                  step="any"
                   min="0"
                   max="1"
                   value={config.workload.priority_low_ratio}
@@ -870,9 +900,9 @@ export default function WorkloadStudio({ presets = [], onRunSimulation, isRunnin
               </label>
               <input
                 type="number"
-                min="50"
-                max="5000"
-                step="50"
+                min="10"
+                max="10000"
+                step="any"
                 value={config.sla_target_ms}
                 onChange={(e) => setConfig({ ...config, sla_target_ms: numberOrEmpty(e.target.value) })}
               />

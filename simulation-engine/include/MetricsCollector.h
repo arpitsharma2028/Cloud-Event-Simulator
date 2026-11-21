@@ -4,6 +4,7 @@
 #include "Event.h"
 #include "ResourcePool.h"
 #include <vector>
+#include <deque>
 #include <algorithm>
 #include <numeric>
 #include <cmath>
@@ -41,6 +42,7 @@ struct MetricSnapshot {
     double throughput;       // req/sec in this window
     double avg_latency_ms;   // average latency of recent completions
     double instantaneous_cost_rate; // $/hour
+    uint64_t completed_tasks{0};
     std::vector<NodeMetricSnapshot> nodes;
 };
 
@@ -97,10 +99,11 @@ struct SimulationSummary {
 
     // SLA Compliance
     double sla_target_latency_ms{250.0};
+    uint64_t sla_sample_count{0};
     uint64_t sla_violation_count{0};
     double sla_violation_rate_pct{0.0};
-    double sla_compliance_rate_pct{100.0};
-    double overall_success_rate_pct{100.0};
+    double sla_compliance_rate_pct{0.0};
+    double overall_success_rate_pct{0.0};
 };
 
 class MetricsCollector {
@@ -118,6 +121,7 @@ public:
 
     void recordCompletion(const Event& task, double completion_time) {
         total_completed_++;
+        completion_times_.push_back(completion_time);
         
         // Total Response Time = Completion Time - Arrival Time
         double latency_sec = completion_time - task.arrival_time;
@@ -151,6 +155,7 @@ public:
         snap.healthy_nodes = pool.getOperationalNodeCount();
         snap.active_tasks = pool.getTotalActiveTasks();
         snap.queued_tasks = pool.getTotalQueuedTasks();
+        snap.completed_tasks = total_completed_;
 
         for (const auto& node : pool.getAllNodes()) {
             snap.nodes.push_back({
@@ -176,8 +181,16 @@ public:
             peak_queue_length_ = snap.queued_tasks;
         }
 
-        // Throughput calculation: completed requests up to current time
-        snap.throughput = (current_time > 0.0) ? (static_cast<double>(total_completed_) / current_time) : 0.0;
+        // 1-second rolling/bucketed window throughput calculation (req/sec)
+        // Purges completions older than 1.0s to smooth instantaneous throughput and eliminate single-tick spikes
+        while (!completion_times_.empty() && completion_times_.front() < current_time - 1.0) {
+            completion_times_.pop_front();
+        }
+        if (current_time > 0.0 && current_time < 1.0) {
+            snap.throughput = static_cast<double>(completion_times_.size()) / current_time;
+        } else {
+            snap.throughput = static_cast<double>(completion_times_.size());
+        }
 
         // Recent latency window
         if (!latencies_ms_.empty()) {
@@ -196,7 +209,8 @@ public:
         double total_mem = pool.getTotalMemCapacity();
         snap.instantaneous_cost_rate = (total_cpu * cost_per_vcpu_hr_) + (total_mem * cost_per_gb_hr_);
 
-        snapshots_.push_back(snap);
+        if (!snapshots_.empty() && snapshots_.back().timestamp == current_time) snapshots_.back() = snap;
+        else snapshots_.push_back(snap);
     }
 
     SimulationSummary generateSummary(double final_time, const ResourcePool& pool, size_t scale_up_events, size_t scale_down_events, size_t failures, size_t recoveries) {
@@ -214,9 +228,26 @@ public:
         s.sla_violation_count = sla_violations_;
         s.peak_queue_length = peak_queue_length_;
 
+        // Include admitted requests still waiting in queues or in-flight at the simulation horizon (T = final_time)
+        // using their elapsed wait time (final_time - task.arrival_time) so policies cannot game latency via queue starvation.
+        std::vector<double> all_latencies_ms = latencies_ms_;
+        std::vector<double> all_queue_waits_ms = queue_waits_ms_;
+
+        for (const auto& node : pool.getAllNodes()) {
+            for (const auto& task : node->waiting_queue) {
+                double elapsed_ms = std::max(0.0, (final_time - task.arrival_time) * 1000.0);
+                all_latencies_ms.push_back(elapsed_ms);
+                all_queue_waits_ms.push_back(elapsed_ms);
+            }
+            for (const auto& task : node->active_tasks) {
+                double elapsed_ms = std::max(0.0, (final_time - task.arrival_time) * 1000.0);
+                all_latencies_ms.push_back(elapsed_ms);
+            }
+        }
+
         // Latency percentiles
-        if (!latencies_ms_.empty()) {
-            std::vector<double> sorted = latencies_ms_;
+        if (!all_latencies_ms.empty()) {
+            std::vector<double> sorted = all_latencies_ms;
             std::sort(sorted.begin(), sorted.end());
 
             s.min_latency_ms = sorted.front();
@@ -238,10 +269,10 @@ public:
         }
 
         // Queue wait stats
-        if (!queue_waits_ms_.empty()) {
-            double sum_wait = std::accumulate(queue_waits_ms_.begin(), queue_waits_ms_.end(), 0.0);
-            s.avg_queue_wait_ms = sum_wait / queue_waits_ms_.size();
-            s.max_queue_wait_ms = *std::max_element(queue_waits_ms_.begin(), queue_waits_ms_.end());
+        if (!all_queue_waits_ms.empty()) {
+            double sum_wait = std::accumulate(all_queue_waits_ms.begin(), all_queue_waits_ms.end(), 0.0);
+            s.avg_queue_wait_ms = sum_wait / all_queue_waits_ms.size();
+            s.max_queue_wait_ms = *std::max_element(all_queue_waits_ms.begin(), all_queue_waits_ms.end());
         }
 
         // System throughput
@@ -273,13 +304,41 @@ public:
             s.max_nodes_observed = max_nodes;
         }
 
+        // Account for horizon queue starvation SLA breaches:
+        // Any request still waiting or in-flight at final_time whose elapsed wait/execution time
+        // exceeds sla_target_ms_ has breached the SLA target and cannot be ignored by starvation.
+        size_t horizon_sla_violations = 0;
+        for (const auto& node : pool.getAllNodes()) {
+            for (const auto& task : node->waiting_queue) {
+                double elapsed_ms = (final_time - task.arrival_time) * 1000.0;
+                if (elapsed_ms > sla_target_ms_) {
+                    horizon_sla_violations++;
+                }
+            }
+            for (const auto& task : node->active_tasks) {
+                double elapsed_ms = (final_time - task.arrival_time) * 1000.0;
+                if (elapsed_ms > sla_target_ms_) {
+                    horizon_sla_violations++;
+                }
+            }
+        }
+
+        uint64_t total_sla_violations = sla_violations_ + horizon_sla_violations;
+        s.sla_violation_count = total_sla_violations;
+
+        // Evaluated SLA sample count covers all completed tasks plus tasks that already breached the SLA at horizon
+        uint64_t evaluated_samples = total_completed_ + horizon_sla_violations;
+        s.sla_sample_count = evaluated_samples;
+
         // Success and SLA rates
         if (total_submitted_ > 0) {
             s.overall_success_rate_pct = (static_cast<double>(total_completed_) / total_submitted_) * 100.0;
         }
-        if (total_completed_ > 0) {
-            s.sla_violation_rate_pct = (static_cast<double>(sla_violations_) / total_completed_) * 100.0;
-            s.sla_compliance_rate_pct = 100.0 - s.sla_violation_rate_pct;
+        if (evaluated_samples > 0) {
+            s.sla_violation_rate_pct = (static_cast<double>(total_sla_violations) / evaluated_samples) * 100.0;
+            s.sla_compliance_rate_pct = std::max(0.0, 100.0 - s.sla_violation_rate_pct);
+        } else {
+            s.sla_compliance_rate_pct = 100.0;
         }
 
         // Cost and Availability from Node tracking
@@ -288,8 +347,11 @@ public:
         double total_cpu_capacity_sec = 0.0;
         double total_mem_capacity_sec = 0.0;
 
-        for (const auto& node : pool.getAllNodes()) {
+        auto lifetime_nodes = pool.getAllNodes();
+        lifetime_nodes.insert(lifetime_nodes.end(), pool.getRetiredNodes().begin(), pool.getRetiredNodes().end());
+        for (const auto& node : lifetime_nodes) {
             double delta = final_time - node->last_status_change_time;
+            if (!pool.getNode(node->id)) delta = 0.0; // Retired node lifetime already closed.
             double node_uptime = node->total_uptime;
             double node_downtime = node->total_downtime;
             if (delta > 0.0) {
@@ -320,7 +382,7 @@ public:
         }
 
         // Idle waste estimate: portion of compute cost while utilization was below 100%
-        if (s.avg_cpu_utilization > 0.0) {
+        {
             double idle_factor = std::max(0.0, 1.0 - (s.avg_cpu_utilization / 100.0));
             s.idle_waste_cost_usd = s.total_cost_usd * idle_factor;
         }
@@ -345,6 +407,7 @@ private:
 
     std::vector<double> latencies_ms_;
     std::vector<double> queue_waits_ms_;
+    std::deque<double> completion_times_;
     std::vector<MetricSnapshot> snapshots_;
 };
 

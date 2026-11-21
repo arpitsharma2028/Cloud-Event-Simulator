@@ -10,6 +10,7 @@ const SimulationSchema = z.object({
   default_cpu_per_node: z.number().min(1).max(64).default(8.0),
   default_mem_per_node: z.number().min(1).max(256).default(16.0),
   node_queue_limit: z.number().int().min(1).max(500).default(50),
+  node_weights: z.array(z.number().min(0.1).max(100)).max(20).default([]),
 
   scheduler: z.enum([
     "ROUND_ROBIN",
@@ -19,18 +20,19 @@ const SimulationSchema = z.object({
   ]).default("ROUND_ROBIN"),
 
   load_balancer: z.enum([
+    "NONE",
     "ROUND_ROBIN",
     "LEAST_CONNECTIONS",
     "WEIGHTED"
-  ]).default("ROUND_ROBIN"),
+  ]).default("NONE"),
 
   auto_scaler: z.object({
     enabled: z.boolean().default(true),
     scale_up_threshold: z.number().min(10).max(100).default(75.0),
     scale_down_threshold: z.number().min(5).max(90).default(30.0),
     cooldown_period: z.number().min(1).max(60).default(15.0),
-    min_nodes: z.number().int().min(1).max(10).default(2),
-    max_nodes: z.number().int().min(2).max(20).default(10),
+    min_nodes: z.number().int().min(1).max(20).default(2),
+    max_nodes: z.number().int().min(1).max(20).default(10),
     scale_up_step: z.number().int().min(1).max(5).default(1),
     scale_down_step: z.number().int().min(1).max(5).default(1)
   }).default({}),
@@ -63,6 +65,31 @@ const SimulationSchema = z.object({
   sla_target_ms: z.number().min(10).max(10000).default(250.0),
   cost_per_vcpu_hr: z.number().min(0.001).max(10.0).default(0.048),
   cost_per_gb_hr: z.number().min(0.0001).max(5.0).default(0.006)
+}).superRefine((data, ctx) => {
+  const issue = (path, message) => ctx.addIssue({ code: z.ZodIssueCode.custom, path, message });
+  if (data.auto_scaler.enabled) {
+    if (data.initial_nodes < data.auto_scaler.min_nodes || data.initial_nodes > data.auto_scaler.max_nodes)
+      issue(['initial_nodes'], 'Initial nodes must be within the autoscaling minimum and maximum.');
+    if (data.auto_scaler.scale_down_threshold >= data.auto_scaler.scale_up_threshold)
+      issue(['auto_scaler', 'scale_down_threshold'], 'Scale-down threshold must be below scale-up threshold.');
+  }
+  if (data.workload.min_mem > data.workload.max_mem) issue(['workload', 'min_mem'], 'Minimum RAM cannot exceed maximum RAM.');
+  const sum = data.workload.priority_high_ratio + data.workload.priority_med_ratio + data.workload.priority_low_ratio;
+  if (Math.abs(sum - 1) > 0.00001) issue(['workload'], 'Priority ratios must sum to 1.');
+  if (data.node_weights.length && data.node_weights.length !== data.initial_nodes)
+    issue(['node_weights'], 'Provide one weight per initial node, or leave weights empty for equal routing.');
+  for (const [i, spike] of data.spikes.entries()) {
+    if (spike.start_time + spike.duration > data.duration) issue(['spikes', i], 'Spike must fit within simulation duration.');
+  }
+  for (const [i, failure] of data.failures.entries()) {
+    if (failure.node_id > data.initial_nodes) issue(['failures', i, 'node_id'], 'Choose an initial node for a scheduled failure.');
+    if (failure.fail_time >= failure.recovery_time || failure.recovery_time > data.duration)
+      issue(['failures', i], 'Failure must occur before recovery, within simulation duration.');
+    if (data.failures.some((other, j) => j < i && other.node_id === failure.node_id && other.fail_time < failure.recovery_time && failure.fail_time < other.recovery_time))
+      issue(['failures', i], 'Outages on the same node cannot overlap.');
+  }
+  if (data.spikes.reduce((sum, s) => sum + s.additional_requests, 0) > 5000)
+    issue(['spikes'], 'Combined spikes cannot exceed 5000 extra requests.');
 }).refine(data => {
   return data.auto_scaler.min_nodes <= data.auto_scaler.max_nodes;
 }, {

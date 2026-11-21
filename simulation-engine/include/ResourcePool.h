@@ -42,9 +42,10 @@ public:
     bool removeNode(int node_id, std::vector<Event>& out_evicted_tasks, double current_time) {
         for (auto it = nodes_.begin(); it != nodes_.end(); ++it) {
             if ((*it)->id == node_id) {
-                // If it has active tasks, evict them
-                std::vector<Event> evicted = (*it)->fail(current_time);
-                out_evicted_tasks.insert(out_evicted_tasks.end(), evicted.begin(), evicted.end());
+                // Only remove idle capacity; never kill work to save capacity.
+                if (!(*it)->active_tasks.empty() || !(*it)->waiting_queue.empty()) return false;
+                (*it)->updateTimeTracking(current_time);
+                retired_nodes_.push_back(*it);
                 nodes_.erase(it);
                 return true;
             }
@@ -59,6 +60,8 @@ public:
         }
         return total;
     }
+
+    const std::vector<std::shared_ptr<Node>>& getRetiredNodes() const { return retired_nodes_; }
 
     double getTotalMemCapacity() const {
         double total = 0.0;
@@ -126,6 +129,7 @@ public:
 
 private:
     std::vector<std::shared_ptr<Node>> nodes_;
+    std::vector<std::shared_ptr<Node>> retired_nodes_;
 };
 
 } // namespace cloudsim

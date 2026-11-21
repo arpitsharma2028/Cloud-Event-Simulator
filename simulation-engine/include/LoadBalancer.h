@@ -12,6 +12,7 @@
 namespace cloudsim {
 
 enum class LoadBalancerType {
+    NONE,
     ROUND_ROBIN,
     LEAST_CONNECTIONS,
     WEIGHTED
@@ -19,6 +20,7 @@ enum class LoadBalancerType {
 
 inline std::string loadBalancerTypeToString(LoadBalancerType type) {
     switch (type) {
+        case LoadBalancerType::NONE: return "NONE";
         case LoadBalancerType::ROUND_ROBIN: return "ROUND_ROBIN";
         case LoadBalancerType::LEAST_CONNECTIONS: return "LEAST_CONNECTIONS";
         case LoadBalancerType::WEIGHTED: return "WEIGHTED";
@@ -27,6 +29,7 @@ inline std::string loadBalancerTypeToString(LoadBalancerType type) {
 }
 
 inline LoadBalancerType stringToLoadBalancerType(const std::string& str) {
+    if (str == "NONE") return LoadBalancerType::NONE;
     if (str == "ROUND_ROBIN") return LoadBalancerType::ROUND_ROBIN;
     if (str == "LEAST_CONNECTIONS") return LoadBalancerType::LEAST_CONNECTIONS;
     if (str == "WEIGHTED") return LoadBalancerType::WEIGHTED;

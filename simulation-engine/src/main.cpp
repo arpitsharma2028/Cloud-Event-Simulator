@@ -22,12 +22,17 @@ SimulationConfig parseConfigFromJson(const std::string& json_str) {
     cfg.default_cpu_per_node = json::findDoubleValue(json_str, "default_cpu_per_node", 8.0);
     cfg.default_mem_per_node = json::findDoubleValue(json_str, "default_mem_per_node", 16.0);
     cfg.node_queue_limit = json::findIntValue(json_str, "node_queue_limit", 50);
+    std::string weights = json::extractArray(json_str, "node_weights");
+    for (char& c : weights) if (c == '[' || c == ']' || c == ',') c = ' ';
+    std::istringstream weight_stream(weights);
+    double weight;
+    while (weight_stream >> weight) cfg.node_weights.push_back(weight);
 
     // Policies
     std::string sched_str = json::findStringValue(json_str, "scheduler", "ROUND_ROBIN");
     cfg.scheduler_type = stringToSchedulerType(sched_str);
 
-    std::string lb_str = json::findStringValue(json_str, "load_balancer", "ROUND_ROBIN");
+    std::string lb_str = json::findStringValue(json_str, "load_balancer", "NONE");
     cfg.load_balancer_type = stringToLoadBalancerType(lb_str);
 
     // Auto Scaler
@@ -43,6 +48,7 @@ SimulationConfig parseConfigFromJson(const std::string& json_str) {
         cfg.auto_scaler.scale_down_step = json::findIntValue(as_obj, "scale_down_step", 1);
         cfg.auto_scaler.default_node_cpu = cfg.default_cpu_per_node;
         cfg.auto_scaler.default_node_mem = cfg.default_mem_per_node;
+        cfg.auto_scaler.default_queue_limit = cfg.node_queue_limit;
     }
 
     // Workload

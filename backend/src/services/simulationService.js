@@ -1,15 +1,28 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const { SimulationSchema } = require('../schemas/validation');
 const { v4: uuidv4 } = require('uuid');
 
-// In-memory registry of simulations
+// In-memory registry of simulations with LRU size limit to prevent memory bloat
+const MAX_SIMULATION_REGISTRY_SIZE = 50;
 const simulationRegistry = new Map();
+
+function saveToRegistry(id, record) {
+  if (simulationRegistry.size >= MAX_SIMULATION_REGISTRY_SIZE) {
+    const oldestKey = simulationRegistry.keys().next().value;
+    simulationRegistry.delete(oldestKey);
+  }
+  simulationRegistry.set(id, record);
+}
 // Active streaming subscriptions: simId -> Set of SSE response objects
 const streamSubscribers = new Map();
 
-// Path to compiled C++ simulation engine binary
-const ENGINE_PATH = path.resolve(__dirname, '../../../simulation-engine/bin/cloud_sim_engine.exe');
+// Path to compiled C++ simulation engine binary (cross-platform support for Linux & Windows)
+const binaryName = process.platform === 'win32' ? 'cloud_sim_engine.exe' : 'cloud_sim_engine';
+const defaultEnginePath = path.resolve(__dirname, '../../../simulation-engine/bin', binaryName);
+const fallbackEnginePath = path.resolve(__dirname, '../../../simulation-engine/bin/cloud_sim_engine.exe');
+const ENGINE_PATH = fs.existsSync(defaultEnginePath) ? defaultEnginePath : (fs.existsSync(fallbackEnginePath) ? fallbackEnginePath : defaultEnginePath);
 
 /**
  * Runs a deterministic simulation through the C++ executable
@@ -18,6 +31,9 @@ const ENGINE_PATH = path.resolve(__dirname, '../../../simulation-engine/bin/clou
  * @returns {Promise<Object>}
  */
 async function executeSimulation(validatedConfig, isStream = false) {
+  const parsed = SimulationSchema.safeParse(validatedConfig);
+  if (!parsed.success) throw Object.assign(new Error(parsed.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join('; ')), { status: 400 });
+  validatedConfig = parsed.data;
   const simulationId = uuidv4();
   const startTime = Date.now();
 
@@ -31,7 +47,7 @@ async function executeSimulation(validatedConfig, isStream = false) {
     executionTimeMs: 0
   };
 
-  simulationRegistry.set(simulationId, record);
+  saveToRegistry(simulationId, record);
 
   if (!fs.existsSync(ENGINE_PATH)) {
     record.status = "FAILED";
@@ -217,41 +233,61 @@ function deleteSimulation(id) {
  * Transform simulation runs into standardized comparative matrix
  */
 function buildMatrixFromRuns(runs) {
-  return runs.map(r => ({
-    id: r.id,
-    name: r.config.name,
-    scheduler: r.config.scheduler,
-    loadBalancer: r.config.load_balancer,
-    autoScalerEnabled: r.config.auto_scaler ? r.config.auto_scaler.enabled : false,
-    initialNodes: r.config.initial_nodes,
-    totalRequests: r.result.summary.total_requests_submitted,
-    completedRequests: r.result.summary.total_requests_completed,
-    failedRequests: r.result.summary.total_requests_failed,
-    rejectedRequests: r.result.summary.total_requests_rejected,
-    successRatePct: r.result.summary.overall_success_rate_pct,
-    throughputReqSec: r.result.summary.overall_throughput_req_per_sec,
-    avgLatencyMs: r.result.summary.avg_latency_ms,
-    p95LatencyMs: r.result.summary.p95_latency_ms,
-    p99LatencyMs: r.result.summary.p99_latency_ms,
-    avgQueueWaitMs: r.result.summary.avg_queue_wait_ms ?? 0,
-    maxQueueWaitMs: r.result.summary.max_queue_wait_ms ?? 0,
-    avgQueueLength: r.result.summary.avg_queue_length ?? 0,
-    peakQueueLength: r.result.summary.peak_queue_length ?? 0,
-    avgCpuUtil: r.result.summary.avg_cpu_utilization,
-    peakCpuUtil: r.result.summary.peak_cpu_utilization,
-    avgMemUtil: r.result.summary.avg_mem_utilization ?? 0,
-    peakMemUtil: r.result.summary.peak_mem_utilization ?? 0,
-    scaleUpEvents: r.result.summary.scale_up_events,
-    scaleDownEvents: r.result.summary.scale_down_events,
-    nodeFailures: r.result.summary.total_node_failures ?? 0,
-    nodeRecoveries: r.result.summary.total_node_recoveries ?? 0,
-    totalCostUsd: r.result.summary.total_cost_usd,
-    costPer1000ReqUsd: r.result.summary.cost_per_1000_requests_usd,
-    idleWasteUsd: r.result.summary.idle_waste_cost_usd,
-    slaViolations: r.result.summary.sla_violation_count,
-    slaCompliancePct: r.result.summary.sla_compliance_rate_pct,
-    clusterAvailabilityPct: r.result.summary.cluster_availability_pct
-  }));
+  return runs.map(r => {
+    const s = r.result.summary;
+    const totalRequests = s.total_requests_submitted || 0;
+    const completedRequests = s.total_requests_completed || 0;
+    const failedRequests = s.total_requests_failed || 0;
+    const rejectedRequests = s.total_requests_rejected || 0;
+    const unfinishedRequests = s.total_requests_unfinished ?? Math.max(0, totalRequests - completedRequests - failedRequests - rejectedRequests);
+
+    // Unified SLA metric selector: evaluated samples = completed + starved horizon breaches
+    const evaluatedRequests = s.sla_sample_count !== undefined ? s.sla_sample_count : completedRequests;
+    const slaViolations = s.sla_violation_count || 0;
+    const slaMetRequests = Math.max(0, evaluatedRequests - slaViolations);
+    const slaCompliancePct = evaluatedRequests > 0
+      ? Number(((slaMetRequests / evaluatedRequests) * 100).toFixed(2))
+      : (s.sla_compliance_rate_pct !== undefined ? Number(s.sla_compliance_rate_pct.toFixed(2)) : 0);
+
+    return {
+      id: r.id,
+      name: r.config.name,
+      scheduler: r.config.scheduler,
+      loadBalancer: r.config.load_balancer,
+      autoScalerEnabled: r.config.auto_scaler ? r.config.auto_scaler.enabled : false,
+      initialNodes: r.config.initial_nodes,
+      totalRequests,
+      completedRequests,
+      failedRequests,
+      rejectedRequests,
+      unfinishedRequests,
+      evaluatedRequests,
+      slaMetRequests,
+      successRatePct: s.overall_success_rate_pct,
+      throughputReqSec: s.overall_throughput_req_per_sec,
+      avgLatencyMs: s.avg_latency_ms,
+      p95LatencyMs: s.p95_latency_ms,
+      p99LatencyMs: s.p99_latency_ms,
+      avgQueueWaitMs: s.avg_queue_wait_ms ?? 0,
+      maxQueueWaitMs: s.max_queue_wait_ms ?? 0,
+      avgQueueLength: s.avg_queue_length ?? 0,
+      peakQueueLength: s.peak_queue_length ?? 0,
+      avgCpuUtil: s.avg_cpu_utilization,
+      peakCpuUtil: s.peak_cpu_utilization,
+      avgMemUtil: s.avg_mem_utilization ?? 0,
+      peakMemUtil: s.peak_mem_utilization ?? 0,
+      scaleUpEvents: s.scale_up_events,
+      scaleDownEvents: s.scale_down_events,
+      nodeFailures: s.total_node_failures ?? 0,
+      nodeRecoveries: s.total_node_recoveries ?? 0,
+      totalCostUsd: s.total_cost_usd,
+      costPer1000ReqUsd: s.cost_per_1000_requests_usd,
+      idleWasteUsd: s.idle_waste_cost_usd,
+      slaViolations,
+      slaCompliancePct,
+      clusterAvailabilityPct: s.cluster_availability_pct
+    };
+  });
 }
 
 /**
@@ -320,19 +356,50 @@ function calculatePolicyRankings(matrix) {
   const maxCost = Math.max(...matrix.map(m => m.totalCostUsd || 1));
 
   const scored = matrix.map(m => {
+    if (!m.completedRequests) {
+      return {
+        id: m.id,
+        name: m.name,
+        scheduler: m.scheduler,
+        loadBalancer: m.loadBalancer,
+        score: 0,
+        slaCompliancePct: m.slaCompliancePct,
+        completedRequests: 0,
+        evaluatedRequests: m.evaluatedRequests || 0,
+        slaMetRequests: m.slaMetRequests || 0,
+        avgLatencyMs: m.avgLatencyMs,
+        throughputReqSec: m.throughputReqSec,
+        totalCostUsd: m.totalCostUsd
+      };
+    }
+
+    // 1. SLA Score (up to 35 pts)
     const slaScore = (m.slaCompliancePct / 100) * 35;
-    const latencyScore = ((maxLatency - m.avgLatencyMs) / maxLatency) * 25;
-    const throughputScore = (m.throughputReqSec / maxThroughput) * 20;
-    const costScore = ((maxCost - m.totalCostUsd) / maxCost) * 20;
-    const compositeScore = Math.max(0, Math.min(100, slaScore + latencyScore + throughputScore + costScore));
+    // 2. Latency Score (up to 25 pts)
+    const latencyScore = maxLatency > 0 ? ((maxLatency - m.avgLatencyMs) / maxLatency) * 25 : 0;
+    // 3. Throughput Score (up to 20 pts)
+    const throughputScore = maxThroughput > 0 ? (m.throughputReqSec / maxThroughput) * 20 : 0;
+    // 4. Cost Score (up to 20 pts)
+    const costScore = maxCost > 0 ? ((maxCost - m.totalCostUsd) / maxCost) * 20 : 0;
+    const rawScore = Math.max(0, Math.min(100, slaScore + latencyScore + throughputScore + costScore));
+
+    // Request fulfillment factor: penalizes policies that starve queues or leave many tasks unfinished
+    // E.g. Priority Based leaving requests in queue cannot artificially score higher than Least Loaded
+    const admittedRequests = m.completedRequests + (m.unfinishedRequests || 0) + (m.failedRequests || 0);
+    const fulfillmentRatio = admittedRequests > 0 ? (m.completedRequests / admittedRequests) : 0;
+    const fulfillmentPenalty = Math.pow(fulfillmentRatio, 0.5);
+    const compositeScore = Number((rawScore * fulfillmentPenalty).toFixed(1));
 
     return {
       id: m.id,
       name: m.name,
       scheduler: m.scheduler,
       loadBalancer: m.loadBalancer,
-      score: Number(compositeScore.toFixed(1)),
+      score: compositeScore,
       slaCompliancePct: m.slaCompliancePct,
+      completedRequests: m.completedRequests,
+      evaluatedRequests: m.evaluatedRequests,
+      slaMetRequests: m.slaMetRequests,
       avgLatencyMs: m.avgLatencyMs,
       throughputReqSec: m.throughputReqSec,
       totalCostUsd: m.totalCostUsd
@@ -387,7 +454,8 @@ async function runExperiment({ baseConfig, experimentType = 'SCHEDULING', polici
     throw new Error("baseConfig is required for policy experimentation.");
   }
 
-  const experimentSeed = seed !== undefined ? Number(seed) : (baseConfig.seed || 42);
+  const experimentSeed = seed !== undefined ? Number(seed) : (baseConfig.seed ?? 42);
+  if (!Array.isArray(policies) || policies.length > 8) throw Object.assign(new Error('Choose at most eight policies.'), { status: 400 });
   let variants = [];
 
   if (experimentType === 'SCHEDULING') {
@@ -398,7 +466,7 @@ async function runExperiment({ baseConfig, experimentType = 'SCHEDULING', polici
     variants = targetPolicies.map(p => ({
       name: `${p.replace(/_/g, ' ')} Policy`,
       scheduler: p,
-      loadBalancer: baseConfig.load_balancer || 'ROUND_ROBIN',
+      loadBalancer: 'NONE',
       autoScaler: baseConfig.auto_scaler
     }));
   } else if (experimentType === 'LOAD_BALANCING') {
@@ -448,6 +516,10 @@ async function runExperiment({ baseConfig, experimentType = 'SCHEDULING', polici
       load_balancer: variant.loadBalancer,
       auto_scaler: variant.autoScaler
     };
+    if (experimentType === 'AUTOSCALING' && runConfig.auto_scaler.enabled) {
+      const initial = baseConfig.initial_nodes ?? 3;
+      runConfig.auto_scaler = { ...runConfig.auto_scaler, min_nodes: Math.min(initial, runConfig.auto_scaler.min_nodes), max_nodes: Math.max(initial, runConfig.auto_scaler.max_nodes) };
+    }
 
     const runRecord = await executeSimulation(runConfig);
     completedRuns.push(runRecord);
@@ -473,15 +545,15 @@ function generateVivaExplanations(matrix) {
   const notes = [];
 
   const bestThroughput = [...matrix].sort((a, b) => b.throughputReqSec - a.throughputReqSec)[0];
-  const lowestLatency = [...matrix].sort((a, b) => a.avgLatencyMs - b.avgLatencyMs)[0];
+  const lowestLatency = matrix.filter(m => m.completedRequests > 0).sort((a, b) => a.avgLatencyMs - b.avgLatencyMs)[0];
   const lowestCost = [...matrix].sort((a, b) => a.totalCostUsd - b.totalCostUsd)[0];
-  const highestSla = [...matrix].sort((a, b) => b.slaCompliancePct - a.slaCompliancePct)[0];
+  const highestSla = matrix.filter(m => m.completedRequests > 0).sort((a, b) => b.slaCompliancePct - a.slaCompliancePct)[0];
 
   if (bestThroughput) {
     notes.push({
       category: "Throughput Champion",
       title: `${bestThroughput.name} achieved highest throughput (${bestThroughput.throughputReqSec.toFixed(2)} req/s)`,
-      explanation: `Using ${bestThroughput.scheduler} with ${bestThroughput.loadBalancer}, this configuration maximized cluster concurrency and minimized idling.`
+      explanation: `Observed throughput for this workload and seed. Compare unfinished and rejected requests before choosing a policy.`
     });
   }
 
@@ -489,7 +561,7 @@ function generateVivaExplanations(matrix) {
     notes.push({
       category: "Latency & Responsiveness",
       title: `${lowestLatency.name} delivered lowest average latency (${lowestLatency.avgLatencyMs.toFixed(1)} ms)`,
-      explanation: `Average queue wait time was ${lowestLatency.avgQueueWaitMs.toFixed(1)} ms. Proactive load balancing minimized task queuing behind heavy jobs.`
+      explanation: `Average queue wait was ${lowestLatency.avgQueueWaitMs.toFixed(1)} ms among completed requests. This excludes unfinished, failed and rejected work.`
     });
   }
 
@@ -504,8 +576,8 @@ function generateVivaExplanations(matrix) {
   if (highestSla) {
     notes.push({
       category: "SLA & Reliability",
-      title: `${highestSla.name} maintained highest SLA compliance (${highestSla.slaCompliancePct.toFixed(1)}%)`,
-      explanation: `Experienced ${highestSla.slaViolations} SLA breaches under target threshold. High service availability was preserved throughout the test workload.`
+      title: highestSla.slaCompliancePct === 0 ? 'No variant met the SLA target' : `${highestSla.name} had the highest observed SLA compliance (${highestSla.slaCompliancePct.toFixed(1)}%)`,
+      explanation: `SLA compliance measures completed requests only; inspect failures, rejections and unfinished work separately. Zero completions do not establish compliance.`
     });
   }
 

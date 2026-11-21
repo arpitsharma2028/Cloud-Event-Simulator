@@ -370,6 +370,41 @@ const PRESETS = [
   }
 ];
 
+// Calibrated scenarios: targets include execution time, with quiet time to drain bursts.
+for (const preset of PRESETS) {
+  const c = preset.config;
+  c.sla_target_ms = 6000;
+  if (preset.id === 'steady_state') {
+    c.workload.request_rate = 3;
+    c.auto_scaler = { ...c.auto_scaler, enabled: false, min_nodes: 3, max_nodes: 3 };
+  }
+  if (preset.id === 'node_outage') c.workload.request_rate = 4;
+  if (preset.id === 'priority_preemption') {
+    c.load_balancer = 'NONE';
+    c.workload.min_task_duration = 1;
+    c.workload.max_task_duration = 2;
+    c.sla_target_ms = 3000;
+    preset.description = 'High-priority waiting work runs first when capacity frees. Running tasks are not interrupted.';
+  }
+  if (preset.id === 'scale_up_and_down') {
+    c.duration = 60;
+    c.initial_nodes = 2;
+    c.default_cpu_per_node = 8;
+    c.default_mem_per_node = 16;
+    c.auto_scaler.min_nodes = 2;
+    c.auto_scaler.scale_up_threshold = 50;
+    c.auto_scaler.scale_down_threshold = 20;
+    c.workload.request_rate = 0.5;
+    c.workload.min_task_duration = 0.5;
+    c.workload.max_task_duration = 1;
+    c.spikes = [{ start_time: 5, duration: 2, additional_requests: 100 }];
+  }
+  if (preset.id === 'scale_down_idle') {
+    c.workload.request_rate = 0.5;
+    c.sla_target_ms = 1500;
+  }
+}
+
 function getPresets() {
   return PRESETS;
 }

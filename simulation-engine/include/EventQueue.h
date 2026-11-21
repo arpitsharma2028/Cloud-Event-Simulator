@@ -30,14 +30,11 @@ struct EventComparator {
         if (a.timestamp != b.timestamp) {
             return a.timestamp > b.timestamp;
         }
-        // Higher priority (lower number, e.g. 1 vs 3) comes first
-        if (a.priority != b.priority) {
-            return a.priority > b.priority;
-        }
         // Causality ordering: Failures and completions happen before arrivals at the exact same instant
         if (a.type != b.type) {
             return getEventTypeCausalityRank(a.type) > getEventTypeCausalityRank(b.type);
         }
+        if (a.priority != b.priority) return a.priority > b.priority;
         // Deterministic tie-breaker by ID
         return a.id > b.id;
     }

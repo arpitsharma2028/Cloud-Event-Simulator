@@ -99,12 +99,19 @@ public:
         return true;
     }
 
-    bool enqueue(const Event& task) {
-        if (!canQueue()) {
+    bool enqueue(const Event& task, bool priority_order = false) {
+        if (!canQueue() || task.cpu_req > cpu_capacity || task.mem_req > mem_capacity) {
             total_tasks_rejected++;
             return false;
         }
-        waiting_queue.push_back(task);
+        if (priority_order) {
+            auto pos = std::find_if(waiting_queue.begin(), waiting_queue.end(), [&](const Event& pending) {
+                return task.priority < pending.priority;
+            });
+            waiting_queue.insert(pos, task);
+        } else {
+            waiting_queue.push_back(task);
+        }
         updateDynamicStatus();
         return true;
     }
@@ -173,6 +180,7 @@ public:
                 total_uptime += delta;
             }
         }
+        last_status_change_time = current_time;
     }
 
     void updateDynamicStatus() {

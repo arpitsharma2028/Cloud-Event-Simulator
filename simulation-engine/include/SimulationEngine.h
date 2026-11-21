@@ -53,10 +53,11 @@ struct SimulationConfig {
     double default_cpu_per_node{8.0};
     double default_mem_per_node{16.0};
     int node_queue_limit{50};
+    std::vector<double> node_weights;
 
     // Policies
     SchedulerType scheduler_type{SchedulerType::ROUND_ROBIN};
-    LoadBalancerType load_balancer_type{LoadBalancerType::ROUND_ROBIN};
+    LoadBalancerType load_balancer_type{LoadBalancerType::NONE};
 
     // Autoscaling
     AutoScalerConfig auto_scaler;
@@ -89,7 +90,7 @@ public:
 
     double getCurrentTime() const { return current_time_; }
     bool isFinished() const {
-        return event_queue_.empty() || current_time_ >= config_.duration;
+        return event_queue_.empty() || event_queue_.top().timestamp > config_.duration;
     }
 
     bool step(std::string* out_event_json = nullptr) {
@@ -139,7 +140,8 @@ public:
         while (!isFinished()) {
             step();
         }
-        // Final metric snapshot at end of simulation
+        current_time_ = config_.duration;
+        // Preserve unfinished work at the observation horizon.
         metrics_.recordSnapshot(current_time_, pool_);
     }
 
@@ -165,6 +167,8 @@ public:
         json << "    \"total_requests_completed\": " << summary.total_requests_completed << ",\n";
         json << "    \"total_requests_failed\": " << summary.total_requests_failed << ",\n";
         json << "    \"total_requests_rejected\": " << summary.total_requests_rejected << ",\n";
+        json << "    \"total_requests_unfinished\": " << (summary.total_requests_submitted - summary.total_requests_completed - summary.total_requests_failed - summary.total_requests_rejected) << ",\n";
+        json << "    \"sla_sample_count\": " << summary.sla_sample_count << ",\n";
         json << "    \"overall_success_rate_pct\": " << summary.overall_success_rate_pct << ",\n";
         json << "    \"overall_throughput_req_per_sec\": " << summary.overall_throughput_req_per_sec << ",\n";
         json << "    \"avg_latency_ms\": " << summary.avg_latency_ms << ",\n";
@@ -215,6 +219,7 @@ public:
                  << ",\"queued_tasks\":" << s.queued_tasks
                  << ",\"throughput\":" << s.throughput
                  << ",\"avg_latency_ms\":" << s.avg_latency_ms
+                 << ",\"completed_tasks\":" << s.completed_tasks
                   << ",\"cost_rate\":" << s.instantaneous_cost_rate
                   << ",\"nodes\":[";
             for (size_t j = 0; j < s.nodes.size(); ++j) {
@@ -298,7 +303,7 @@ public:
 
         // Event Log (Sample up to 500 events for client inspection)
         json << "  \"event_log\": [\n";
-        size_t log_count = std::min<size_t>(event_log_.size(), 500);
+        size_t log_count = event_log_.size();
         for (size_t i = 0; i < log_count; ++i) {
             const auto& e = event_log_[i];
             json << "    {\"id\":" << e.id
@@ -317,7 +322,7 @@ public:
 
         // Decision Trace (Chronological explainable log)
         json << "  \"decision_trace\": [\n";
-        size_t trace_count = std::min<size_t>(decision_trace_.size(), 300);
+        size_t trace_count = decision_trace_.size();
         for (size_t i = 0; i < trace_count; ++i) {
             json << "    " << json::quote(decision_trace_[i])
                  << (i + 1 < trace_count ? ",\n" : "\n");
@@ -356,7 +361,7 @@ private:
                 i, name,
                 config_.default_cpu_per_node,
                 config_.default_mem_per_node,
-                1.0,
+                config_.node_weights.size() > static_cast<size_t>(i - 1) ? config_.node_weights[i - 1] : 1.0,
                 config_.node_queue_limit
             );
             pool_.addNode(node);
@@ -431,7 +436,7 @@ private:
         }
 
         // 5. Schedule periodic metric samples
-        double sample_step = (config_.time_step > 0.1) ? config_.time_step : 1.0;
+        double sample_step = std::max(0.1, config_.time_step);
         for (double t_sample = 0.0; t_sample <= config_.duration; t_sample += sample_step) {
             Event sm;
             sm.id = next_event_id_++;
@@ -444,12 +449,15 @@ private:
     void handleRequestArrival(Event& req) {
         metrics_.recordSubmission(req);
 
-        // Step 1: Scheduler decides which node gets the request
-        std::string sched_reason;
-        int target_node_id = scheduler_->schedule(req, pool_, sched_reason);
+        // Single Source of Truth for Routing: Load Balancer if enabled, otherwise Scheduler
+        std::string routing_reason;
+        int target_node_id = -1;
 
-        // Step 2: If healthy nodes available and load balancer has choice among candidate matches
-        if (target_node_id != -1 && config_.load_balancer_type != LoadBalancerType::ROUND_ROBIN) {
+        if (req.cpu_req > config_.default_cpu_per_node || req.mem_req > config_.default_mem_per_node) {
+            target_node_id = -1;
+            routing_reason = "Unschedulable: task exceeds the CPU or RAM capacity of every node";
+        } else if (config_.load_balancer_type != LoadBalancerType::NONE) {
+            // Load Balancer is the single active routing authority
             auto healthy = pool_.getHealthyNodes();
             std::vector<std::shared_ptr<Node>> capable_nodes;
             for (const auto& hn : healthy) {
@@ -458,13 +466,22 @@ private:
                 }
             }
             if (!capable_nodes.empty()) {
-                std::string lb_reason;
-                int lb_pick = load_balancer_->balance(req, capable_nodes, lb_reason);
-                if (lb_pick != -1) {
-                    target_node_id = lb_pick;
-                    sched_reason += " | " + lb_reason;
+                target_node_id = load_balancer_->balance(req, capable_nodes, routing_reason);
+            } else {
+                std::vector<std::shared_ptr<Node>> queueable_nodes;
+                for (const auto& hn : healthy) {
+                    if (hn->canQueue()) queueable_nodes.push_back(hn);
+                }
+                if (!queueable_nodes.empty()) {
+                    target_node_id = load_balancer_->balance(req, queueable_nodes, routing_reason);
+                } else {
+                    target_node_id = -1;
+                    routing_reason = "Load Balancer evaluated operational nodes: no node has capacity or queue space";
                 }
             }
+        } else {
+            // Scheduler is the single active routing authority
+            target_node_id = scheduler_->schedule(req, pool_, routing_reason);
         }
 
         req.node_id = target_node_id;
@@ -472,13 +489,13 @@ private:
         if (target_node_id == -1) {
             req.status = TaskStatus::REJECTED;
             req.finish_time = current_time_;
-            req.decision_log = sched_reason;
+            req.decision_log = routing_reason;
             metrics_.recordRejection(req);
 
             std::ostringstream trace;
             trace << "[T=" << std::fixed << std::setprecision(2) << current_time_
                   << "s] REJECT: Request #" << req.task_id << " (vCPU: " << req.cpu_req
-                  << ", RAM: " << req.mem_req << "GB) dropped. Reason: " << sched_reason;
+                  << ", RAM: " << req.mem_req << "GB) dropped. Reason: " << routing_reason;
             decision_trace_.push_back(trace.str());
             event_log_.push_back(req);
             return;
@@ -499,7 +516,7 @@ private:
             req.start_time = current_time_;
             node->allocate(req);
 
-            req.decision_log = sched_reason;
+            req.decision_log = routing_reason;
             event_log_.push_back(req);
 
             // Schedule completion event
@@ -521,12 +538,12 @@ private:
             trace << "[T=" << std::fixed << std::setprecision(2) << current_time_
                   << "s] ALLOC: Request #" << req.task_id << " (Priority: " << req.priority
                   << ", vCPU: " << req.cpu_req << ", RAM: " << req.mem_req << "GB) -> "
-                  << node->name << " [Finishes at T=" << comp.timestamp << "s]. " << sched_reason;
+                  << node->name << " [Finishes at T=" << comp.timestamp << "s]. " << routing_reason;
             decision_trace_.push_back(trace.str());
         } else if (node->canQueue()) {
             req.status = TaskStatus::QUEUED;
             req.decision_log = "Queued on " + node->name + " (Queue depth: " + std::to_string(node->waiting_queue.size() + 1) + ")";
-            node->enqueue(req);
+            node->enqueue(req, config_.scheduler_type == SchedulerType::PRIORITY_BASED);
             event_log_.push_back(req);
 
             std::ostringstream trace;
@@ -556,6 +573,7 @@ private:
                 comp.status = TaskStatus::COMPLETED;
                 comp.finish_time = current_time_;
                 metrics_.recordCompletion(comp, current_time_);
+                event_log_.push_back(comp);
 
                 std::ostringstream trace;
                 trace << "[T=" << std::fixed << std::setprecision(2) << current_time_
@@ -564,12 +582,14 @@ private:
                       << (current_time_ - comp.arrival_time) * 1000.0 << "ms)";
                 decision_trace_.push_back(trace.str());
 
-                // Check node's waiting queue to dispatch next task if capacity freed
-                while (!node->waiting_queue.empty()) {
-                    const auto& next_task = node->waiting_queue.front();
-                    if (node->hasCapacity(next_task.cpu_req, next_task.mem_req)) {
-                        Event queued_task = node->waiting_queue.front();
-                        node->waiting_queue.pop_front();
+                // Check node's waiting queue to dispatch next task if capacity freed.
+                // Using iterator traversal with backfilling prevents Head-of-Line (HOL) blocking
+                // where an oversized task at the head starves smaller pending tasks.
+                auto q_it = node->waiting_queue.begin();
+                while (q_it != node->waiting_queue.end()) {
+                    if (node->hasCapacity(q_it->cpu_req, q_it->mem_req)) {
+                        Event queued_task = *q_it;
+                        q_it = node->waiting_queue.erase(q_it);
 
                         queued_task.status = TaskStatus::RUNNING;
                         queued_task.start_time = current_time_;
@@ -596,7 +616,7 @@ private:
                                 << node->name << " to active execution";
                         decision_trace_.push_back(q_trace.str());
                     } else {
-                        break;
+                        ++q_it;
                     }
                 }
             }
@@ -607,7 +627,8 @@ private:
         std::vector<Event> evicted;
         std::string log;
         if (failure_mgr_.triggerNodeFailure(ev.target_node_id, current_time_, pool_, evicted, log)) {
-            decision_trace_.push_back(log);
+            decision_trace_.push_back(timePrefix() + log);
+            event_log_.push_back(ev);
             for (auto& task : evicted) {
                 metrics_.recordFailure(task);
                 event_log_.push_back(task);
@@ -628,7 +649,8 @@ private:
     void handleNodeRecovery(Event& ev) {
         std::string log;
         if (failure_mgr_.triggerNodeRecovery(ev.target_node_id, current_time_, pool_, log)) {
-            decision_trace_.push_back(log);
+            decision_trace_.push_back(timePrefix() + log);
+            event_log_.push_back(ev);
         }
     }
 
@@ -636,7 +658,7 @@ private:
         std::vector<Event> evicted;
         std::string log;
         if (auto_scaler_.evaluate(current_time_, pool_, evicted, log)) {
-            decision_trace_.push_back(log);
+            decision_trace_.push_back(timePrefix() + log);
             if (log.find("SCALE_UP") != std::string::npos) {
                 scale_up_count_++;
             } else if (log.find("SCALE_DOWN") != std::string::npos) {
@@ -653,7 +675,14 @@ private:
         metrics_.recordSnapshot(current_time_, pool_);
     }
 
+    std::string timePrefix() const {
+        std::ostringstream text;
+        text << "[T=" << std::fixed << std::setprecision(2) << current_time_ << "s] ";
+        return text.str();
+    }
+
     void handleWorkloadSpike(Event& ev) {
+        event_log_.push_back(ev);
         std::uniform_real_distribution<double> dur_dist(config_.workload.min_task_duration, config_.workload.max_task_duration);
         std::uniform_real_distribution<double> cpu_dist(config_.workload.min_cpu, config_.workload.max_cpu);
         std::uniform_real_distribution<double> mem_dist(config_.workload.min_mem, config_.workload.max_mem);
@@ -661,6 +690,7 @@ private:
 
         for (int i = 0; i < ev.spike_request_count; ++i) {
             double req_time = current_time_ + time_spread(rng_);
+            if (req_time >= config_.duration) continue;
             Event req;
             req.id = next_event_id_++;
             req.task_id = next_task_id_++;

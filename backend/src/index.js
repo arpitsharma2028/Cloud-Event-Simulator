@@ -91,7 +91,7 @@ app.use((err, req, res, next) => {
 });
 
 if (process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, () => {
+  app.listen(PORT, '127.0.0.1', () => {
     console.log(`====================================================`);
     console.log(` Cloud Event Simulator Backend API running on port ${PORT}`);
     console.log(` Health check: http://localhost:${PORT}/health`);

@@ -446,7 +446,48 @@ void testZeroWorkloadEdgeCase() {
     std::cout << "  -> PASSED: Simulator handles near-zero workload gracefully without division by zero.\n";
 }
 
+void testBehaviorRegressions() {
+    Node node(1, "node-1", 4, 8);
+    Event low; low.task_id = 1; low.priority = 3;
+    Event high = low; high.task_id = 2; high.priority = 1;
+    node.enqueue(low, true); node.enqueue(high, true);
+    assert(node.waiting_queue.front().task_id == 2);
+    Event impossible; impossible.cpu_req = 8;
+    assert(!node.enqueue(impossible));
+
+    ResourcePool pool;
+    auto busy = std::make_shared<Node>(1, "busy", 4, 8);
+    busy->allocate(low); pool.addNode(busy);
+    std::vector<Event> evicted;
+    assert(!pool.removeNode(1, evicted, 5));
+    busy->release(low.task_id);
+    assert(pool.removeNode(1, evicted, 5));
+    assert(evicted.empty());
+    MetricsCollector metrics;
+    auto summary = metrics.generateSummary(10, pool, 0, 1, 0, 0);
+    assert(summary.total_cost_usd > 0); // Removed capacity must still be billed.
+    assert(std::abs(summary.total_cost_usd - (4 * .048 + 8 * .006) * 5 / 3600) < 1e-9);
+
+    Event completion, arrival;
+    completion.timestamp = arrival.timestamp = 1;
+    completion.type = EventType::TASK_COMPLETE; completion.priority = 3;
+    arrival.type = EventType::REQUEST_ARRIVAL; arrival.priority = 1;
+    EventQueue queue; queue.push(arrival); queue.push(completion);
+    assert(queue.pop().type == EventType::TASK_COMPLETE);
+
+    SimulationConfig cfg;
+    cfg.duration = 10; cfg.time_step = .1;
+    cfg.default_cpu_per_node = 1; cfg.workload.min_cpu = cfg.workload.max_cpu = 2;
+    cfg.auto_scaler.enabled = false;
+    SimulationEngine engine(cfg); engine.run();
+    auto output = engine.exportResultsJson();
+    assert(json::findIntValue(output, "total_requests_completed", -1) == 0);
+    assert(json::findIntValue(output, "total_requests_unfinished", -1) == 0);
+    std::cout << "Behavior regressions: priority queues, safe removal, lifecycle cost, causality and impossible tasks PASSED\n";
+}
+
 int main() {
+    testBehaviorRegressions();
     std::cout << "==========================================================" << std::endl;
     std::cout << " CLOUD EVENT SIMULATOR - EXPANDED C++ UNIT TEST SUITE (17)" << std::endl;
     std::cout << "==========================================================" << std::endl;

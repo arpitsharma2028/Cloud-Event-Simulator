@@ -43,13 +43,17 @@ if (-not (Test-Path $binDir)) {
     New-Item -ItemType Directory -Path $binDir -Force | Out-Null
 }
 
-if (-not (Test-Path $engineExe)) {
+# Build from source every launch. Git checkout timestamps cannot establish
+# whether a prebuilt executable matches the current headers.
+$engineNeedsBuild = $true
+if ($engineNeedsBuild) {
     Write-Host "  -> Compiling C++ Discrete Event Simulation Engine..." -ForegroundColor Cyan
     if (Get-Command g++ -ErrorAction SilentlyContinue) {
         & g++ -std=c++14 -O3 (Join-Path $rootDir "simulation-engine\src\main.cpp") -o $engineExe
+        if ($LASTEXITCODE -ne 0) { throw 'Engine compilation failed. Startup cancelled.' }
         Write-Host "  -> C++ engine compiled successfully." -ForegroundColor Green
     } else {
-        Write-Host "  -> [WARNING] g++ compiler not found. Please compile cloud_sim_engine.exe." -ForegroundColor Yellow
+        throw 'Engine is missing or stale and g++ was not found. Compile the engine before starting.'
     }
 } else {
     Write-Host "  -> C++ engine binary is ready." -ForegroundColor Green

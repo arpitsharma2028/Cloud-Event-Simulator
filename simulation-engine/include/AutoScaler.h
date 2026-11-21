@@ -30,6 +30,7 @@ struct AutoScalerConfig {
     int scale_down_step{1};
     double default_node_cpu{4.0};
     double default_node_mem{8.0};
+    int default_queue_limit{50};
 };
 
 class AutoScaler {
@@ -54,7 +55,7 @@ public:
         double cpu_util = pool.getAverageCpuUtilization();
         double mem_util = pool.getAverageMemUtilization();
         double composite_util = (cpu_util * 0.6) + (mem_util * 0.4);
-        int current_nodes = static_cast<int>(pool.getOperationalNodeCount());
+        int current_nodes = static_cast<int>(pool.getTotalNodeCount());
 
         // 1. Scale Up Check
         if (composite_util > config_.scale_up_threshold && current_nodes < config_.max_nodes) {
@@ -65,9 +66,11 @@ public:
                     next_node_id_++;
                     std::string node_name = "node-" + std::to_string(next_node_id_);
                     auto new_node = std::make_shared<Node>(next_node_id_, node_name, config_.default_node_cpu, config_.default_node_mem);
+                    new_node->max_queue_size = config_.default_queue_limit;
+                    new_node->last_status_change_time = current_time;
                     pool.addNode(new_node);
                 }
-                int new_count = static_cast<int>(pool.getOperationalNodeCount());
+                int new_count = static_cast<int>(pool.getTotalNodeCount());
                 last_scaling_time_ = current_time;
 
                 std::ostringstream ss;
@@ -96,7 +99,7 @@ public:
                 int removed_count = 0;
                 int old_count = current_nodes;
 
-                for (int i = 0; i < to_remove && i < static_cast<int>(sorted_nodes.size()); ++i) {
+                for (int i = 0; removed_count < to_remove && i < static_cast<int>(sorted_nodes.size()); ++i) {
                     int remove_id = sorted_nodes[i]->id;
                     if (pool.removeNode(remove_id, out_evicted, current_time)) {
                         removed_count++;
@@ -104,7 +107,7 @@ public:
                 }
 
                 if (removed_count > 0) {
-                    int new_count = static_cast<int>(pool.getOperationalNodeCount());
+                    int new_count = static_cast<int>(pool.getTotalNodeCount());
                     last_scaling_time_ = current_time;
 
                     std::ostringstream ss;
